@@ -100,27 +100,6 @@ macOS kills a binary a _browser_ downloaded, silently — `xattr -d com.apple.qu
 and fetching with `curl` avoids it. This is also the file to point an agent's MCP config at: see
 [Serving an AI agent (MCP)](#serving-an-ai-agent-mcp).
 
-## Licenses of what is inside
-
-What ships is one file with its dependencies compiled into it, and those dependencies come with terms that
-ask to travel with the copies. So they do:
-
-```bash
-nu-cli --licenses            # every bundled package, its license and its copyright notice
-nu-cli --licenses | less
-```
-
-The list is collected when the build is made, from the bundle itself, so it names what the file actually
-contains rather than what a manifest declares: a dependency that is declared but never imported is not in it
-and is not listed, and one that arrives as somebody else's transitive dependency is in it and is. That is
-some 150 packages and a quarter of a megabyte of notices.
-
-Each entry carries the package's own license file verbatim, `NOTICE` included where there is one. A package
-that ships no license file at all says so in place of the text, rather than quietly dropping out.
-
-An executable additionally contains the Bun runtime it was compiled with, which the header of the output
-points at; run from a checkout there is no Bun in the picture and none is claimed.
-
 ## Scenarios and deployments
 
 _A Nussknacker designer: what is on it, what the scenarios do, and changing them. Configured by
@@ -1047,7 +1026,17 @@ be compared with the designer it is talking to.
 
 ## License
 
-Apache-2.0. `nu-cli --licenses` prints the terms of everything compiled into the build you are running.
+Apache-2.0. What ships is one file with its dependencies compiled into it, and their terms ask to travel
+with the copies — so they do, inside the binary:
+
+```bash
+nu-cli --licenses | less
+```
+
+Some 150 packages, each with its own license text and `NOTICE` where there is one, plus the Bun runtime the
+executable was compiled with. The list is collected from the bundle itself when the build is made, so it
+names what the file actually contains rather than what a manifest declares; a package that ships no license
+file at all says so in place of the text, rather than quietly dropping out.
 
 ## Nussknacker
 
