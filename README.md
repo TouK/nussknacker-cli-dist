@@ -1,130 +1,92 @@
 # Nussknacker CLI
 
-**nu-cli** is the command line client for a [Nussknacker](https://nussknacker.io) designer — the web
-application scenarios are built in, documented at [docs.nussknacker.io](https://docs.nussknacker.io). One
-file with its runtime inside it, so there is no npm and no Node to install first. Three things it does:
+**nu-cli** is the command line client for [Nussknacker](https://nussknacker.io) — the web application
+scenarios are built in, documented at [docs.nussknacker.io](https://docs.nussknacker.io). One file with its
+runtime inside it, so there is no npm and no Node to install first.
 
-- **reads and edits scenarios** — list them, print the graph, see why one will not deploy, change it, save
-  it, deploy it;
-- **moves data** — produce messages into a running scenario and consume what comes out;
-- **serves the designer to an AI agent** over MCP, so an agent does all of the above through its own tools.
-  See [Serving an AI agent (MCP)](#serving-an-ai-agent-mcp).
+It holds **two unrelated tools** under one name. They talk to different machines, use different credentials
+and have a config file each; nothing carries over from one to the other, and `nu-cli --help` lists them
+apart for the same reason.
+
+**[Scenarios and deployments](#scenarios-and-deployments)** — a designer instance: what is on it, what the
+scenarios do, changing and deploying them. Also what an AI agent gets, since
+[the MCP server](#serving-an-ai-agent-mcp) serves this half.
 
 ```bash
-nu-cli scenario list                     # what is on this instance
-nu-cli scenario graph fraud-detection    # what that scenario actually does
-nu-cli scenario validate fraud-detection # why it will not deploy
-nu-cli send                              # push one message through it
+nu-cli login --url https://your-designer.example --browser   # once
+nu-cli scenario list                                         # what is on this instance
+nu-cli scenario graph fraud-detection                        # what that scenario actually does
+nu-cli scenario validate fraud-detection                     # why it will not deploy
 ```
 
-First run, once it is installed:
+**[Data in and out of a running scenario](#data-in-and-out-of-a-running-scenario)** — a topic endpoint:
+messages pushed into a scenario, and whatever it emits.
 
 ```bash
-nu-cli login --url https://your-designer.example --browser   # obtain a token
-nu-cli whoami                                                # which instance, as whom, from which files
-nu-cli scenario list                                         # what is on it
+nu-cli init-data                                             # once
+nu-cli send                                                  # push one message through
+nu-cli consume                                               # watch what comes out
 ```
 
 ## Install
 
-There is one executable per platform — the whole client, runtime included, in a single file. Installing one
-is a line, with no token and nothing to choose:
+One executable per platform, the runtime inside it, nothing else to install:
 
 ```bash
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/TouK/nussknacker-cli-dist/main/install.sh)"
 ```
 
-The files live in [TouK/nussknacker-cli-dist](https://github.com/TouK/nussknacker-cli-dist), a public
-repository that holds no code: one release per version, the executables attached to it, and the two
-installers and this page beside them. The installer reads which version is current, picks the file for the
-machine (musl included), verifies it against the published `SHA256SUMS`, unpacks it and installs it as
-`~/.local/bin/nu-cli`. What it takes:
+It picks the file for this machine, checks it against the published `SHA256SUMS`, asks where to put it and
+installs `~/.local/bin/nu-cli`. At a terminal it asks before downloading and lets the path be edited; in a
+pipe or a CI job it asks nothing.
 
 |                   |                                                      |
 | ----------------- | ---------------------------------------------------- |
-| `--snapshot`      | the newest published snapshot instead of a release   |
+| `--snapshot`      | the newest snapshot of master instead of a release   |
 | `--version <v>`   | that exact version                                   |
 | `--prefix <dir>`  | directory to install into, instead of `~/.local/bin` |
 | `--target <name>` | a platform other than the detected one               |
 | `-y`, `--yes`     | take the defaults and ask nothing                    |
 
-Run at a terminal it shows what it is about to fetch and how big it is, asks before downloading, and then
-asks where to put it — the whole path, `nu-cli` on the end, ready to be edited:
-
-```
-Install to: /home/you/.local/bin/nu-cli
-```
-
-Enter accepts it; editing the line puts the binary somewhere else, and a directory works as an answer just
-as well as a file. Where there is nobody to answer — a pipe, a container, a CI job — it asks nothing and
-takes the defaults, so the one-liner stays a one-liner. `--yes` is that same silence on purpose.
-
-Arguments go after a `--`, which stands in for the name a shell expects first:
+Flags go after a `--`, which stands in for the name a shell expects first — without it they are swallowed:
 
 ```bash
-sh -c "$(curl -fsSL .../nussknacker-cli-dist/main/install.sh)" -- --snapshot
-curl -fsSL .../nussknacker-cli-dist/main/install.sh | sh -s -- --snapshot   # the same, through a pipe
+sh -c "$(curl -fsSL …/install.sh)" -- --snapshot
+curl -fsSL …/install.sh | sh -s -- --snapshot     # the same, through a pipe
 ```
 
-Left out, the flag is taken as the script's own name and the installer sees no arguments at all — so it goes
-to the release channel, and says only that there is no release to install.
-
-A release is what the bare command installs, however many snapshots came after it: that is GitHub's own
-`releases/latest`, which leaves prereleases out, so it needs no marker and no API call. `--snapshot` reads
-one instead — a `latest.txt` on a release called `snapshot` — and that pointer is moved **only by a build of
-master**. Branch builds are published too, under their own version and reachable with `--version`, but they
-never take over the address people are told to use. `nu-cli -v` reports the version it was built from,
-commit included, so what is installed is always identifiable and can be compared with the designer it talks
-to.
-
-Installing this way is also what keeps macOS quiet: Gatekeeper kills a binary that a _browser_ saved,
-without printing anything, and nothing fetched with `curl` carries the attribute that triggers it.
+A release is what the bare command installs, however many snapshots came after it. `--snapshot` follows
+master; builds published from a branch are installed by name with `--version`.
 
 ### Windows
-
-`install.sh` is POSIX `sh`, which Windows does not have, so `install.ps1` is published beside it and does
-the same job with what PowerShell has:
 
 ```powershell
 irm https://raw.githubusercontent.com/TouK/nussknacker-cli-dist/main/install.ps1 | iex
 ```
 
-It installs `%LOCALAPPDATA%\Programs\nu-cli\nu-cli.exe`, asks the same two questions, and takes `-Version`,
-`-Snapshot`, `-Prefix`, `-Target`, `-Yes` and `-AddToPath` — the last one because a Windows installer is
-expected to make the command work, while touching the environment is still a decision rather than a side
-effect. Without it, the script says the directory is not on `PATH` and leaves it at that.
-
-Passing an argument needs the scriptblock form, since `iex` on a string has nowhere to put one:
+Installs `%LOCALAPPDATA%\Programs\nu-cli\nu-cli.exe` and asks the same questions. Flags need the scriptblock
+form, since `iex` on a string has nowhere to put them, and `-AddToPath` is the one worth knowing — without
+it the command is only there by its full path:
 
 ```powershell
-& ([scriptblock]::Create((irm .../nussknacker-cli-dist/main/install.ps1))) -Snapshot -AddToPath
+& ([scriptblock]::Create((irm …/install.ps1))) -Snapshot -AddToPath
 ```
 
-`Invoke-WebRequest` does not attach the mark of the web to what it writes, so the executable runs without
-SmartScreen asking about it — the same reason the other installer uses `curl`. Windows also locks a
-running executable instead of letting it be replaced, so an install over a `nu-cli mcp` that an editor
-still has open fails; the script says which file and why.
+Under WSL or Git Bash use `install.sh` instead: those want the Linux binary.
 
-WSL and Git Bash are POSIX enough for `install.sh`, and that is the better route if the binary is for use
-inside them — the Windows executable cannot run there, nor the Linux one outside.
+### By hand
 
-Taking a file by hand works too, from the
-[releases page](https://github.com/TouK/nussknacker-cli-dist/releases). Everything published is gzipped, and
-`SHA256SUMS` covers the gzipped file:
+From the [releases page](https://github.com/TouK/nussknacker-cli-dist/releases), or:
 
 ```bash
 dist=https://github.com/TouK/nussknacker-cli-dist/releases
 curl -fsSLO $dist/latest/download/nu-cli-linux-x64.gz          # or /download/<version>/… for one build
 curl -fsSL  $dist/latest/download/SHA256SUMS -o SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
-gunzip nu-cli-linux-x64.gz
-chmod +x nu-cli-linux-x64
-./nu-cli-linux-x64 --version
+gunzip nu-cli-linux-x64.gz && chmod +x nu-cli-linux-x64
 ```
 
-Which file to take:
-
-| File                      | For                                                             |
+| file                      | for                                                             |
 | ------------------------- | --------------------------------------------------------------- |
 | `nu-cli-linux-x64`        | most Linux machines and CI runners (glibc)                      |
 | `nu-cli-linux-arm64`      | arm64 Linux (glibc)                                             |
@@ -134,12 +96,9 @@ Which file to take:
 | `nu-cli-darwin-x64`       | Intel Macs                                                      |
 | `nu-cli-windows-x64.exe`  | Windows                                                         |
 
-Published, each of those carries a `.gz` suffix. macOS quarantines a binary downloaded through a browser;
-`xattr -d com.apple.quarantine nu-cli-darwin-arm64` clears it, and downloading with `curl` avoids it
-altogether.
-
-This is also the easiest way to give an agent the MCP server: the client config points at the file, with no
-`npx` and no Node to install. See [Serving an AI agent (MCP)](#serving-an-ai-agent-mcp).
+macOS kills a binary a _browser_ downloaded, silently — `xattr -d com.apple.quarantine <file>` clears it,
+and fetching with `curl` avoids it. This is also the file to point an agent's MCP config at: see
+[Serving an AI agent (MCP)](#serving-an-ai-agent-mcp).
 
 ## Licenses of what is inside
 
@@ -162,7 +121,12 @@ that ships no license file at all says so in place of the text, rather than quie
 An executable additionally contains the Bun runtime it was compiled with, which the header of the output
 points at; run from a checkout there is no Bun in the picture and none is claimed.
 
-## Talking to a designer
+## Scenarios and deployments
+
+_A Nussknacker designer: what is on it, what the scenarios do, and changing them. Configured by
+`nu-cli login`, in `designer.yaml`._
+
+### Talking to a designer
 
 Every `scenario` command needs to know which designer to ask, and as whom. In order of precedence:
 
@@ -188,12 +152,9 @@ profiles:
 `$NU_TOKEN` overrides whatever is configured, which is what a CI job should use. `nu-cli whoami` says
 which instance you are pointed at, who the backend thinks you are, and which files it read.
 
-### Two worlds, two configs
+#### Where the config is
 
-A designer instance and a topic endpoint are different subjects — different hosts, different credentials —
-so they get a file each rather than two sections of one. `nu-cli --help` lists the commands the same way.
-
-| world    | file                             | written by         |
+| half     | file                             | written by         |
 | -------- | -------------------------------- | ------------------ |
 | designer | `.nussknacker-cli/designer.yaml` | `nu-cli login`     |
 | data     | `.nussknacker-cli/data.yaml`     | `nu-cli init-data` |
@@ -210,7 +171,7 @@ holds the credential.
 
 `--config <path>` replaces the search for the world the command belongs to.
 
-### Profiles
+#### Profiles
 
 Every instance lives under a profile, including the one you did not name — that one is called `default`.
 There is no second shape for "the usual instance": it is a profile like the others, in the same list.
@@ -243,7 +204,7 @@ nu-cli login --url https://staging.example -p cloud --browser
 That writes `profiles.cloud` — the url it was pointed at and the credential it obtained — without touching
 any other profile. Every command afterwards reaches it with `-p cloud`.
 
-### Getting a token
+#### Getting a token
 
 Instances that authenticate with OIDC hand the designer a token that lives in `sessionStorage`: scoped to
 the designer's own origin, per tab, and gone when the tab closes. **No page the CLI serves can read it** —
@@ -307,7 +268,7 @@ the config records only the variable's name. One typed at the prompt is written 
 
 `--profile <name>` stores the credential under that profile, so one config can hold several instances.
 
-### Logging out
+#### Logging out
 
 ```bash
 nu-cli logout             # the default profile
@@ -317,7 +278,7 @@ nu-cli logout -p demo     # one profile
 This removes the credential from the config and nothing more. The token stays valid on the instance until
 it expires — the CLI cannot revoke it, and does not pretend to.
 
-### Where credentials live
+#### Where credentials live
 
 In the config files above, in plain text, mode `600`. That is a deliberate trade: no keychain means the same
 behaviour on a laptop, in a container and in CI. What it costs is that the file's permissions are the only
@@ -333,7 +294,7 @@ else on stderr), `--impersonate <user>`, `--insecure`, `--ca <path>`, `--timeout
 Exit codes: `0` ok, `2` bad usage, `3` not authenticated, `4` not found, `5` validation errors,
 `6` network or timeout, `1` anything else.
 
-## Picking a scenario
+### Picking a scenario
 
 Leave the name out and the command asks which one you meant:
 
@@ -356,7 +317,7 @@ There is nobody to ask when the output is not going to a terminal, so `--json` a
 turn a missing name into a usage error (exit 2) rather than a prompt that would hang waiting for an answer.
 Scripts pass the name; people do not have to.
 
-## Reading a scenario
+### Reading a scenario
 
 `nu-cli scenario graph <name>` answers one question: what is the shape of this scenario. Node names, how
 they connect, and what each branch is — nothing else, because everything else is noise when you are trying
@@ -441,7 +402,7 @@ Options:
 | `--spacing <n>`    | room around the connectors: 1 tight, 2 default, 3 airy — both directions at once  |
 | `--width <n>`      | wrap to this width instead of the terminal's                                      |
 
-## Changing a scenario's structure
+### Changing a scenario's structure
 
 `scenario set` changes values inside a scenario; these change what it is made of. Every one edits the local
 draft, the same one `set` writes, and nothing reaches the server until `scenario save`.
@@ -476,7 +437,7 @@ which kinds of edge it offers, what a join does with a branch it gains or loses.
 allow is refused with the rule that refused it (exit 5), and the draft stays as it was. Inserting onto an edge
 needs only one side to fit - a source inserted that way is connected by its output alone, as on the canvas.
 
-## Serving an AI agent (MCP)
+### Serving an AI agent (MCP)
 
 `nu-cli mcp` serves the designer to an AI agent as MCP tools over stdio. They are the designer's own AI tools
 under the same names (`list_scenarios`, `get_scenario`, `change_scenario_values`, `get_validation_results`,
@@ -544,7 +505,7 @@ Calls that change a scenario's draft wait for each other, one scenario at a time
 parallel whenever it sees no dependency between them, and two edits of the same draft racing would silently
 drop one of them. Reads never wait.
 
-### What the agent gets
+#### What the agent gets
 
 | access           | tools                                                                                                                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -553,7 +514,7 @@ drop one of them. Reads never wait.
 | `--allow-write`  | `create_scenario` `save_scenario`                                                                                                                                                             |
 | `--allow-deploy` | `deploy_scenario` `cancel_scenario` `send_message`                                                                                                                                            |
 
-### If you are an agent setting this up
+#### If you are an agent setting this up
 
 Run these in order and stop at the first one that fails:
 
@@ -583,7 +544,13 @@ Then register the server with the full path to the binary, since your host proce
   breaks the client's framing.
 - Anything the tools do not cover exists as a command, and `--json` gives output you can parse.
 
-## Quick start for the data commands
+## Data in and out of a running scenario
+
+_A topic endpoint: messages pushed into a scenario and whatever comes out the other side. A different
+host and a different credential from the half above, configured by `nu-cli init-data`, in `data.yaml` -
+the two share nothing but the binary._
+
+### Quick start
 
 1. **Initialize configuration:**
 
@@ -604,9 +571,9 @@ Then register the server with the full path to the binary, since your host proce
     nu-cli produce
     ```
 
-## Commands
+### The commands
 
-### `nu-cli init-data`
+#### `nu-cli init-data`
 
 Sets up the data config — a topic to send messages to. A designer instance is a config of its own, and that
 one is `nu-cli login`.
@@ -634,7 +601,7 @@ nu-cli init-data -o myconfig.yaml   # Custom output path
 - Delay between messages
 - Multiple profiles support
 
-### `nu-cli send`
+#### `nu-cli send`
 
 Send a single message to Nu Cloud (manual mode).
 
@@ -666,7 +633,7 @@ nu-cli send --profile production --data '{"event": "user_login"}'
 - `-t, --template <path>` - Template file to use (overrides config)
 - `--dry-run` - Show what would be sent without sending
 
-### `nu-cli produce`
+#### `nu-cli produce`
 
 Send messages to Nu Cloud continuously.
 
@@ -690,7 +657,7 @@ nu-cli produce --template custom.yaml  # Use custom template
 - `-c, --count <number>` - Send specified number of messages and exit
 - `--dry-run` - Show what would be sent without sending
 
-### `nu-cli consume`
+#### `nu-cli consume`
 
 Start webhook consumer with tunnel support.
 
@@ -788,7 +755,7 @@ brew install cloudflare/cloudflare/cloudflared
 # Visit https://tailscale.com/download
 ```
 
-### `nu-cli schema`
+#### `nu-cli schema`
 
 Generate Avro schema from message template.
 
@@ -801,9 +768,9 @@ nu-cli schema -o schema.avsc   # Save to file
 
 - `-o, --output <path>` - Output file (stdout if not specified)
 
-## Configuration
+### Configuration
 
-### Basic config (`.nussknacker-cli/data.yaml`)
+#### Basic config (`.nussknacker-cli/data.yaml`)
 
 ```yaml
 api:
@@ -819,7 +786,7 @@ producer:
 **Optional Authentication:**  
 If your endpoint doesn't require authentication, leave the password empty. If the endpoint requires auth but you provide no password, you'll get a `401` error.
 
-### Multiple profiles
+#### Multiple profiles
 
 Use profiles to manage different environments (dev/staging/prod):
 
@@ -855,11 +822,11 @@ nu-cli produce --profile staging
 
 Profiles are merged with the default configuration, so you only need to specify the values that differ.
 
-## Message Templates
+### Message templates
 
 Templates define the structure of generated messages using faker.js for realistic test data.
 
-### Default Template
+#### Default Template
 
 The CLI includes a default template with faker.js support:
 
@@ -870,7 +837,7 @@ age: "::number.int({min:18, max:65})"
 timestamp: "current_timestamp"
 ```
 
-### Custom Templates
+#### Custom Templates
 
 Create your own template file:
 
@@ -896,7 +863,7 @@ nu-cli produce --template ./my-template.yaml
 nu-cli send --template ./my-template.yaml
 ```
 
-### Faker.js Syntax
+#### Faker.js Syntax
 
 Full [faker.js API](https://fakerjs.dev/api/) support using `::` prefix. Parameters are parsed as JSON and spread as `...args` to faker functions.
 
@@ -937,7 +904,7 @@ location: "::location.nearbyGPSCoordinate([52.52, 13.40], 10, true)"
 
 - `current_timestamp` → ISO 8601 timestamp
 
-### Advanced Examples
+#### Advanced Examples
 
 **Complete event template:**
 
@@ -977,21 +944,21 @@ shippingAddress:
 createdAt: "current_timestamp"
 ```
 
-## Examples
+### Examples
 
-### Continuous production with custom delay
+#### Continuous production with custom delay
 
 ```bash
 nu-cli produce --delay 3
 ```
 
-### Single message to production environment
+#### Single message to production environment
 
 ```bash
 nu-cli produce --profile production --once
 ```
 
-### Dry run to test message structure
+#### Dry run to test message structure
 
 ```bash
 nu-cli produce --dry-run --once
@@ -1000,13 +967,13 @@ nu-cli produce --dry-run --once
 }
 ```
 
-### Generate and save Avro schema
+#### Generate and save Avro schema
 
 ```bash
 nu-cli schema -o schema.avsc
 ```
 
-### Start consumer on custom port without tunnel
+#### Start consumer on custom port without tunnel
 
 ```bash
 nu-cli consume --port 9000 --no-tunnel
@@ -1027,26 +994,24 @@ nu-cli consume --port 9000 --no-tunnel
 
 ## Troubleshooting
 
-### `could not read …/latest/latest.txt`
+### "Nothing has been released yet"
 
-Nothing is released yet, so the bare install line has no version to read. Until the first release a
-[snapshot](#install) is the only thing to install.
+Until the first release, `--snapshot` is the only thing to install.
 
-### The installer ran but `nu-cli` is not found
+### `nu-cli` is not found after installing
 
-`~/.local/bin` is not on your `PATH` — the installer says so. Add it, or call the binary by its full path.
-On Windows, run the installer again with `-AddToPath` and open a new terminal.
+Its directory is not on your `PATH`. The installer prints the line that adds it; on Windows, run it again
+with `-AddToPath` and open a new terminal.
 
 ### It did not run at all
 
 On Alpine and other musl systems the binary needs libstdc++: `apk add libstdc++`. On macOS, a binary saved
-by a _browser_ is quarantined and killed without a message: `xattr -d com.apple.quarantine <file>`, or
-install with `curl` as above.
+by a _browser_ is quarantined and killed without a message: `xattr -d com.apple.quarantine <file>`.
 
 ### Windows: `could not replace …\nu-cli.exe`
 
-Windows locks a running executable instead of letting it be replaced. Something still has it open — an MCP
-server inside an editor being the usual candidate. Close it and install again.
+Windows locks a running executable. Close whatever has it open — an MCP server inside an editor is the
+usual one — and install again.
 
 ### "Config file not found"
 
