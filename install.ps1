@@ -103,12 +103,12 @@ try {
             try {
                 $Version = (Invoke-WebRequest -UseBasicParsing -Uri $marker).Content.Trim()
             } catch {
-                # The pointer is moved by a build of master and by nothing else, so this is what somebody sees
-                # when the only builds published so far came from a branch: they exist, they are just not what
-                # -Snapshot means.
-                Write-Host 'install.ps1: nothing is on the snapshot channel yet.' -ForegroundColor Red
-                Write-Host '  It is moved by builds of master; anything published from a branch is installed by name:'
-                Write-Host "    $baseUrl/releases lists every build"
+                # What somebody sees when the only builds published so far came from a branch: those exist,
+                # they are just not what -Snapshot means. The file this reads is nobody's business - where to
+                # look instead is.
+                Write-Host 'install.ps1: there is no snapshot of master to install yet.' -ForegroundColor Red
+                Write-Host '  Builds made from a branch are published under their own version:'
+                Write-Host "    $baseUrl/releases lists them"
                 Write-Host "    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Version <version>"
                 throw "no snapshot to install"
             }
@@ -121,7 +121,7 @@ try {
             if ($location -match '/releases/tag/(.+)$') {
                 $Version = $Matches[1]
             } else {
-                Write-Host "install.ps1: $baseUrl has no release yet." -ForegroundColor Red
+                Write-Host 'install.ps1: nothing has been released yet.' -ForegroundColor Red
                 Write-Host '  For the newest build of master, ask for a snapshot:'
                 Write-Host "    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Snapshot"
                 Write-Host '  A flag needs the scriptblock form: `irm ... | iex` has nowhere to pass it.'
