@@ -27,8 +27,8 @@ nu-cli scenario list                                         # what is on it
 
 ## Install
 
-Each pipeline that touches the CLI builds one executable per platform — the whole client, runtime
-included, in a single file. Installing one is a line, with no token and nothing to choose:
+There is one executable per platform — the whole client, runtime included, in a single file. Installing one
+is a line, with no token and nothing to choose:
 
 ```bash
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/TouK/nussknacker-cli-dist/main/install.sh)"
@@ -36,9 +36,9 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/TouK/nussknacker-cli-dist/
 
 The files live in [TouK/nussknacker-cli-dist](https://github.com/TouK/nussknacker-cli-dist), a public
 repository that holds no code: one release per version, the executables attached to it, and the two
-installers and this page beside them — see [Publishing](#publishing). The installer reads which version is
-current, picks the file for the machine (musl included), verifies it against the published `SHA256SUMS`,
-unpacks it and installs it as `~/.local/bin/nu-cli`. What it takes:
+installers and this page beside them. The installer reads which version is current, picks the file for the
+machine (musl included), verifies it against the published `SHA256SUMS`, unpacks it and installs it as
+`~/.local/bin/nu-cli`. What it takes:
 
 |                   |                                                      |
 | ----------------- | ---------------------------------------------------- |
@@ -96,9 +96,9 @@ still has open fails; the script says which file and why.
 WSL and Git Bash are POSIX enough for `install.sh`, and that is the better route if the binary is for use
 inside them — the Windows executable cannot run there, nor the Linux one outside.
 
-Taking a file by hand works too — from the releases page, or from the `build-cli-binaries` artifact of any
-pipeline, which expires where a release does not. Everything published is gzipped, and `SHA256SUMS` covers
-the gzipped file:
+Taking a file by hand works too, from the
+[releases page](https://github.com/TouK/nussknacker-cli-dist/releases). Everything published is gzipped, and
+`SHA256SUMS` covers the gzipped file:
 
 ```bash
 dist=https://github.com/TouK/nussknacker-cli-dist/releases
@@ -129,25 +129,6 @@ altogether.
 This is also the easiest way to give an agent the MCP server: the client config points at the file, with no
 `npx` and no Node to install. See [Serving an AI agent (MCP)](#serving-an-ai-agent-mcp).
 
-To build them from a checkout, with [Bun](https://bun.sh) installed
-(`curl -fsSL https://bun.sh/install | bash`):
-
-```bash
-cd designer/client/packages/cli
-npm run build:binary                        # this machine's platform, into dist-binary/
-npm run build:binary -- --all               # every published target
-npm run build:binary -- --target linux-x64  # one of them
-NUSSKNACKER_VERSION=1.20.0 npm run build:binary   # stamp a version into `nu-cli -v`
-```
-
-Bun is the compiler only: the bundle inside the executable is the same esbuild output `npm run build:cli`
-produces, so what ships and what you run from a checkout are the same program.
-
-Every target leaves a `<binary>.gz` beside it, since that is what gets published. Asking for this machine's
-target alone — the first line above — keeps the uncompressed executable as well, so there is something to
-run; a build of several targets keeps only the archives, rather than putting a second copy of 60–85 MB into
-the CI artifact.
-
 ## Licenses of what is inside
 
 What ships is one file with its dependencies compiled into it, and those dependencies come with terms that
@@ -156,160 +137,18 @@ ask to travel with the copies. So they do:
 ```bash
 nu-cli --licenses            # every bundled package, its license and its copyright notice
 nu-cli --licenses | less
-npm run licenses             # the same text from a checkout, without building anything
 ```
 
-The list is collected at build time from esbuild's metafile — that is, from the bundle itself — so it names
-what the artifact actually contains rather than what `package.json` declares. A dependency that is declared
-but never imported is not in the file and is not listed; one that arrives as somebody else's transitive
-dependency is in it and is. That is some 150 packages and a quarter of a megabyte of notices, which is 2% of
-the bundle and 0.3% of an executable.
+The list is collected when the build is made, from the bundle itself, so it names what the file actually
+contains rather than what a manifest declares: a dependency that is declared but never imported is not in it
+and is not listed, and one that arrives as somebody else's transitive dependency is in it and is. That is
+some 150 packages and a quarter of a megabyte of notices.
 
 Each entry carries the package's own license file verbatim, `NOTICE` included where there is one. A package
 that ships no license file at all says so in place of the text, rather than quietly dropping out.
 
 An executable additionally contains the Bun runtime it was compiled with, which the header of the output
 points at; run from a checkout there is no Bun in the picture and none is claimed.
-
-## Publishing
-
-The executables are published as **GitHub releases of [TouK/nussknacker-cli-dist](https://github.com/TouK/nussknacker-cli-dist)**:
-one release per version, tagged with it, the gzipped binaries and their `SHA256SUMS` attached as assets. That
-repository holds no code — its front page is this file, and the two installers beside it are the ones the
-one-liners fetch. The Nussknacker pipeline pushes into it; nothing there is built there.
-
-Two scripts, one credential:
-
-| script                        | what it does                                                       |
-| ----------------------------- | ------------------------------------------------------------------ |
-| `scripts/publish-binaries.sh` | creates the release and uploads the assets                         |
-| `scripts/publish-repo.sh`     | pushes this README and both installers to that repository's `main` |
-
-The credential is `NU_CLI_GITHUB_TOKEN`, a token with `contents: write` on that repository, as a masked
-CI/CD variable here. Releases and the repository's files are the same permission, so one token covers both;
-`GH_TOKEN` is read as well, and outside CI `gh auth token` stands in, which is how either script can be run
-by hand without a token in the shell history. No token, no publish — and the scripts say which one is
-missing rather than failing obscurely.
-
-### Channels, without markers where GitHub has them
-
-| address                                 | what it is                                              |
-| --------------------------------------- | ------------------------------------------------------- |
-| `releases/latest/download/<file>`       | the newest release; GitHub resolves it, prereleases out |
-| `releases/download/<version>/<file>`    | one named build, for `--version`                        |
-| `releases/download/snapshot/latest.txt` | which build `--snapshot` takes                          |
-
-A `-SNAPSHOT` version is published as a **prerelease**, which is what keeps it out of `releases/latest` — so
-the release channel needs no marker of its own, and the installer resolves it with no API call at all: the
-redirect of `releases/latest` carries the tag. The snapshot channel has nothing of the kind, so it gets one
-file at a fixed address, a `latest.txt` on a release called `snapshot` that carries nothing else.
-
-**Only a build of master moves that pointer.** A branch build is published under its own version and can be
-handed to somebody with `--version <it>`, but the address people are told to use keeps meaning master. The
-release channel moves on `production`, where the release job has already rewritten `version.sbt` so the
-version carries no suffix.
-
-### Publishing nothing, on purpose
-
-Publishing on every push to master would be a version per commit — 300 MB of assets each — most of them the
-same program under a new name, and a pointer that moves without anything having changed. So the job asks
-first, and the question is answerable because the build writes **`BUNDLE_ID`**: the sha256 of the esbuild
-bundle with the version string taken back out of it, plus Bun's version, since a compiler upgrade changes
-the executables without changing a line of ours. It is uploaded with every release, and a publish whose
-`BUNDLE_ID` equals the one the channel points at is skipped.
-
-`SHA256SUMS` cannot answer this: it covers the executables, and the version is stamped into each one, so they
-differ on every commit whether or not anything else did. What the hash measures is the bundle, so a change
-that esbuild eliminates — a comment, or a branch that constant-folding drops — correctly counts as no change
-at all.
-
-The skip is not silent: the job says which version the channel still holds, and reports it as
-`NU_CLI_PUBLISHED_VERSION`, so `verify-cli-install` checks what is actually installable rather than failing
-on the version this pipeline happened to build. `NU_CLI_FORCE_PUBLISH=true` publishes anyway.
-
-### Interrupted half way
-
-A release is created as a **draft**, the assets are uploaded into it, and it is published last. Nothing is
-downloadable until everything is there, and an interrupted run leaves a draft rather than a release that
-claims to hold files it does not — the next run finds that draft and finishes it.
-
-Which is also why "does this version exist" is asked twice: a draft has no tag, so GitHub's
-`releases/tags/<version>` answers only for something published, and that is exactly the question the
-republish guard needs. A second publish of a **release** version is refused rather than replacing bytes
-people have already downloaded and checksummed (`ALLOW_REPUBLISH=true` overrides it); a snapshot names its
-commit, so re-running the same commit legitimately produces the same thing and may replace its assets.
-
-Replacing an asset means deleting it first — GitHub answers `422` rather than overwriting — which a re-run
-and a resumed publish both need.
-
-### This file is that repository's front page
-
-There is one document, and you are reading it. `scripts/publish-repo.sh` copies it over with each release, so
-whoever arrives for a binary reads what was reviewed in the same MR as the code it describes, and there is no
-second copy to keep in step. **Edit it here; an edit made in that repository is overwritten by the next
-release.**
-
-That a page for outsiders and a page for whoever maintains the publishing are the same file is deliberate.
-Everything here is true of the thing being downloaded, none of it is a secret, and the alternative was two
-documents that disagree within a month.
-
-```bash
-cd designer/client/packages/cli
-NUSSKNACKER_VERSION=1.20.0 scripts/publish-repo.sh      # with gh logged in, or NU_CLI_GITHUB_TOKEN set
-```
-
-It compares before it commits, so an unchanged file is left alone and the history over there records when
-something actually changed rather than when a release happened. `NU_CLI_REPO_FORCE=true` pushes from a
-snapshot build too, for a correction to an installer that should not wait for a release. The clone is one
-commit deep and the token goes into the push URL for that one command — not into a config file, and not into
-a remote that outlives it.
-
-### The rest of it
-
-Compression is gzip because the installer has to unpack on a machine it knows nothing about: xz would save
-another ~8 MB per download, and Debian 12 and Ubuntu 24.04 have nothing that unpacks it — not even GNU
-`tar`, which shells out to `xz` and fails without it. Nothing ships zstd either.
-
-A tag becomes resolvable a few seconds after the release is created, not instantly, which is why
-`verify-cli-install` retries before concluding that an install is broken.
-
-Old snapshot releases are deleted by hand. There is deliberately no job for it: whatever the two channels
-point at has to survive, and publication order does not protect it.
-
-## Development
-
-The package lives in the designer monorepo, at `designer/client/packages/cli`. Link it once and use
-`nu-cli` everywhere:
-
-```bash
-cd designer/client
-npm install
-npm run build:cli
-cd packages/cli && npm link
-```
-
-This is the setup worth having. `nu-cli` prints what it was asked for and nothing else, which matters both
-when reading the output and when piping it:
-
-```bash
-nu-cli scenario list --json | jq '.data.scenarios[].name'
-```
-
-There is also `npm run cli` from `designer/client`, which rebuilds first (about 100 ms) so it can never run
-a stale bundle:
-
-```bash
-npm run cli -- scenario list --url http://localhost:8080
-```
-
-It costs two lines of npm's own `> package@version` banner on stdout, printed before the script even
-starts, so nothing inside this package can suppress them — for a pipe, either link the binary or add npm's
-`--silent`.
-
-The script is deliberately called `cli` and not `dev`. The monorepo's `npm run dev` fans out to the `dev`
-script of every workspace that has one, and that set is the web client's dev servers — long-running
-processes started together. A CLI is a one-shot command with no server to keep alive, so it has no place
-in that group.
 
 ## Talking to a designer
 
@@ -1161,28 +1000,6 @@ nu-cli schema -o schema.avsc
 nu-cli consume --port 9000 --no-tunnel
 ```
 
-## What is where in the sources
-
-```
-src/
-├── cli.ts              the command tree, grouped the way --help prints it
-├── commands/           one file per command; `scenario/` is a directory of its own
-├── designer/           everything about talking to a designer:
-│   ├── transport/      the client and the endpoint list shared with the designer's own code
-│   ├── domain/         what a command means - scenarios, versions, deployments, layout
-│   ├── draft/          where an unsaved edit is kept
-│   ├── auth/           obtaining and storing a token, including the browser routes
-│   ├── graph/          the ASCII drawing of a scenario
-│   └── render/         tables and widths
-├── mcp/                the MCP server: tool definitions, gating, the call log
-├── lib/                the data half - producer, consumer, templates, config
-└── utils/              logging, errors, stdout
-scripts/                the builds and the publishing; see Publishing above
-```
-
-The designer half reads the shell's own types and edit logic through the `@shell/*` alias rather than
-copying them, so a change to how the designer edits a scenario is a change to how this does.
-
 ## Where things live
 
 |                                             |                                         |
@@ -1247,10 +1064,9 @@ Then create a topic in Nu Cloud with this schema.
 
 ## Versions
 
-There is one version number, the Nussknacker one. This package is not released on its own and is not
-published to npm: `nu-cli -v` reports the version of the build it came from, down to the commit for a
-snapshot, so the client and the designer it talks to can be compared. Where those builds come from and how
-they reach people is [Publishing](#publishing).
+There is one version number, the Nussknacker one — this client is not released on its own. `nu-cli -v`
+reports the version of the build it came from, down to the commit for a snapshot, so what you are running can
+be compared with the designer it is talking to.
 
 ## License
 
