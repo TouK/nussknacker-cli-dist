@@ -34,6 +34,17 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# What went wrong, with room around it, and the line to copy out underneath. PowerShell colours by name and
+# leaves them out when its output is redirected, so there is nothing to detect here.
+function Problem([string] $text) {
+    Write-Host ""
+    Write-Host $text -ForegroundColor Red
+    Write-Host ""
+}
+function CommandHint([string] $text) {
+    Write-Host "    $text" -ForegroundColor Cyan
+}
+
 if ($Help) {
     @'
 install.ps1 - install nu-cli, the Nussknacker command line client, as a single executable
@@ -106,10 +117,12 @@ try {
                 # What somebody sees when the only builds published so far came from a branch: those exist,
                 # they are just not what -Snapshot means. The file this reads is nobody's business - where to
                 # look instead is.
-                Write-Host 'install.ps1: there is no snapshot of master to install yet.' -ForegroundColor Red
-                Write-Host '  Builds made from a branch are published under their own version:'
-                Write-Host "    $baseUrl/releases lists them"
-                Write-Host "    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Version <version>"
+                Problem 'There is no snapshot of master to install yet.'
+                Write-Host 'Builds made from a branch are published under their own version:'
+                CommandHint "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Version <version>"
+                Write-Host ""
+                Write-Host "Which versions there are: $baseUrl/releases" -ForegroundColor DarkGray
+                Write-Host ""
                 throw "no snapshot to install"
             }
         } else {
@@ -121,11 +134,13 @@ try {
             if ($location -match '/releases/tag/(.+)$') {
                 $Version = $Matches[1]
             } else {
-                Write-Host 'install.ps1: nothing has been released yet.' -ForegroundColor Red
-                Write-Host '  For the newest build of master, ask for a snapshot:'
-                Write-Host "    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Snapshot"
-                Write-Host '  A flag needs the scriptblock form: `irm ... | iex` has nowhere to pass it.'
-                Write-Host "  Every build there is, released or not, is listed at $baseUrl/releases"
+                Problem 'Nothing has been released yet.'
+                Write-Host 'For the newest build of master, ask for a snapshot:'
+                CommandHint "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Snapshot"
+                Write-Host ""
+                Write-Host 'A flag needs the scriptblock form: `irm ... | iex` has nowhere to pass it.' -ForegroundColor DarkGray
+                Write-Host "Every build there is, released or not: $baseUrl/releases" -ForegroundColor DarkGray
+                Write-Host ""
                 throw "no release to install"
             }
         }
@@ -135,7 +150,8 @@ try {
     # `releases/latest/download/...` where that is what was asked for: one redirect rather than two, and it
     # stays correct if a release is published between these two requests.
     $base = if ($Snapshot -or $named) { "$baseUrl/releases/download/$Version" } else { "$baseUrl/releases/latest/download" }
-    Write-Host "nu-cli $Version ($Target)"
+    Write-Host "nu-cli $Version " -NoNewline
+    Write-Host "($Target)" -ForegroundColor DarkGray
 
     # ---- download, check, install ----------------------------------------------------------------
 
@@ -188,24 +204,30 @@ try {
             "in an editor counts - and run this again.")
     }
 
-    Write-Host "installed $installed"
+    Write-Host "installed " -ForegroundColor Green -NoNewline
+    Write-Host $installed
 
     if ($AddToPath) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         if (($userPath -split ';') -notcontains $Prefix) {
             $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Prefix } else { $Prefix }
             [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
+            Write-Host ""
             Write-Host "added $Prefix to your user PATH - open a new terminal for it to take effect"
         }
     } elseif (($env:PATH -split ';') -notcontains $Prefix) {
-        Write-Host "note: $Prefix is not on your PATH. Run this with -AddToPath, or call the binary by its full path."
+        Write-Host ""
+        Write-Host "$Prefix is not on your PATH." -ForegroundColor Yellow
+        Write-Host 'Run this again with -AddToPath, or call the binary by its full path.'
+        Write-Host ""
     }
 
     # Proves the file runs here, which is the one thing a checksum cannot say.
     & $installed --version > $null 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "warning: $installed did not run."
-        Write-Host '  A binary fetched with -Target for another platform is not expected to run here.'
+        Problem "$installed did not run."
+        Write-Host 'A binary fetched with -Target for another platform is not expected to run here.' -ForegroundColor DarkGray
+        Write-Host ""
     }
 } finally {
     # Covers every exit, so a failed download leaves nothing behind.

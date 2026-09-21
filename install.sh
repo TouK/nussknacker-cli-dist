@@ -29,8 +29,31 @@ TARGET=""
 # somebody's branch - those are published too, and reached by name with --version.
 CHANNEL="latest"
 
+# Colour only when somebody is looking at it: a pipe, a file or a CI log gets plain text, and NO_COLOR is
+# honoured because it costs one condition to honour it.
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+    BOLD=$(printf '\033[1m')
+    RED=$(printf '\033[31m')
+    GREEN=$(printf '\033[32m')
+    CYAN=$(printf '\033[36m')
+    DIM=$(printf '\033[2m')
+    OFF=$(printf '\033[0m')
+else
+    BOLD="" RED="" GREEN="" CYAN="" DIM="" OFF=""
+fi
+
+# What went wrong, on its own, with room around it. Every one of these ends the run, so the blank line above
+# separates it from whatever the shell printed last rather than from more of ours.
+problem() {
+    printf '\n%s%s%s\n\n' "${BOLD}${RED}" "$1" "${OFF}" >&2
+}
+
+# A line of prose under a problem, and a command to run, which is what people actually copy out.
+note() { printf '%s\n' "$1" >&2; }
+command_hint() { printf '    %s%s%s\n' "$CYAN" "$1" "$OFF" >&2; }
+
 die() {
-    echo "install.sh: $1" >&2
+    problem "$1"
     exit 1
 }
 
@@ -133,11 +156,11 @@ if [ -z "$VERSION" ]; then
     if [ "$CHANNEL" = latest ]; then
         VERSION=$(released_version)
         [ -n "$VERSION" ] || {
-            echo "install.sh: nothing has been released yet." >&2
-            echo "  For the newest build of master, ask for a snapshot:" >&2
-            echo "    sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)\" -- --snapshot" >&2
-            echo "  The '--' is not decoration: without it the flag is taken as the script's own name." >&2
-            echo "  Every build there is, released or not, is listed at ${BASE}/releases" >&2
+            problem "Nothing has been released yet."
+            note "For the newest build of master, ask for a snapshot:"
+            command_hint "sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)\" -- --snapshot"
+            printf '\n%sThe -- is not decoration: without it the flag is taken as the script'"'"'s own name.%s\n' "$DIM" "$OFF" >&2
+            printf '%sEvery build there is, released or not: %s/releases%s\n\n' "$DIM" "$BASE" "$OFF" >&2
             exit 1
         }
     else
@@ -151,10 +174,10 @@ if [ -z "$VERSION" ]; then
             # What somebody sees when the only builds published so far came from a branch: those exist, they
             # are just not what `--snapshot` means. The file this reads is nobody's business - where to look
             # instead is.
-            echo "install.sh: there is no snapshot of master to install yet." >&2
-            echo "  Builds made from a branch are published under their own version:" >&2
-            echo "    ${BASE}/releases lists them" >&2
-            echo "    sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)\" -- --version <version>" >&2
+            problem "There is no snapshot of master to install yet."
+            note "Builds made from a branch are published under their own version:"
+            command_hint "sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)\" -- --version <version>"
+            printf '\n%sWhich versions there are: %s/releases%s\n\n' "$DIM" "$BASE" "$OFF" >&2
             exit 1
         }
         VERSION=$(printf '%s' "$marker" | tr -d ' \t\r\n')
@@ -172,7 +195,7 @@ else
     FILES="${BASE}/releases/download/${VERSION}"
 fi
 
-echo "nu-cli ${VERSION} (${TARGET})"
+printf '%snu-cli %s%s %s(%s)%s\n' "$BOLD" "$VERSION" "$OFF" "$DIM" "$TARGET" "$OFF"
 
 # ---- download, check, install -------------------------------------------------------------------
 
@@ -216,17 +239,24 @@ chmod 755 "${TMP}/${BINARY}"
 # falls back to a copy, which is why the temporary directory is not under $PREFIX.
 mv -f "${TMP}/${BINARY}" "${PREFIX}/nu-cli"
 
-echo "installed ${PREFIX}/nu-cli"
+printf '%sinstalled%s %s\n' "$GREEN" "$OFF" "${PREFIX}/nu-cli"
 
 case ":${PATH}:" in
 *":${PREFIX}:"*) ;;
-*) echo "note: ${PREFIX} is not on your PATH - add it, or call the binary by its full path" ;;
+*)
+    # To stderr, like every other remark here: stdout carries the two lines worth piping anywhere, which are
+    # what was installed and where.
+    printf '\n%s%s is not on your PATH.%s Add it, or call the binary by its full path:\n' "$BOLD" "$PREFIX" "$OFF" >&2
+    command_hint "export PATH=\"${PREFIX}:\$PATH\""
+    printf '\n' >&2
+    ;;
 esac
 
 "${PREFIX}/nu-cli" --version > /dev/null 2>&1 || {
-    echo "warning: ${PREFIX}/nu-cli did not run."
-    echo "  On Alpine and other musl systems it needs libstdc++ (apk add libstdc++)."
+    problem "${PREFIX}/nu-cli did not run."
+    note "On Alpine and other musl systems it needs libstdc++:"
+    command_hint "apk add libstdc++"
     # Worth saying, because --target is the one way to end up with a binary for a machine that is not this
     # one, and then "did not run" is the expected outcome rather than a problem.
-    echo "  A binary fetched with --target for another platform is not expected to run here either."
+    printf '\n%sA binary fetched with --target for another platform is not expected to run here either.%s\n\n' "$DIM" "$OFF" >&2
 }
