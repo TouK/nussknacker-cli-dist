@@ -49,9 +49,15 @@ machine (musl included), verifies it against the published `SHA256SUMS`, unpacks
 | `-y`, `--yes`     | take the defaults and ask nothing                    |
 
 Run at a terminal it shows what it is about to fetch and how big it is, asks before downloading, and then
-asks where to put it — enter takes `~/.local/bin`, or type another directory. Where there is nobody to
-answer — a pipe, a container, a CI job — it asks nothing and takes the defaults, so the one-liner stays a
-one-liner. `--yes` is that same silence on purpose.
+asks where to put it — the whole path, `nu-cli` on the end, ready to be edited:
+
+```
+Install to: /home/you/.local/bin/nu-cli
+```
+
+Enter accepts it; editing the line puts the binary somewhere else, and a directory works as an answer just
+as well as a file. Where there is nobody to answer — a pipe, a container, a CI job — it asks nothing and
+takes the defaults, so the one-liner stays a one-liner. `--yes` is that same silence on purpose.
 
 Arguments go after a `--`, which stands in for the name a shell expects first:
 

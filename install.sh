@@ -294,12 +294,24 @@ else
     die "none of gunzip, gzip or zcat was found, and the download is gzipped"
 fi
 
-# Where it goes is asked rather than announced, and the answer is a directory: pressing enter takes the
-# default, and anything else typed replaces it - which is the whole of "somewhere other than ~/.local/bin"
-# without having to know that --prefix exists.
+# Where it goes is asked rather than announced, and what is asked about is the whole path, the file name
+# included - that is what somebody is deciding, and seeing `/nu-cli` on the end is how they know it is not
+# being asked for a directory to dump things in.
+DEST="${PREFIX}/nu-cli"
+
 if [ -n "$ASKING" ]; then
     printf '\n' >&2
-    ask "Install to [${PREFIX}]: "
+    # bash from 4 onwards can put the default into the line and leave the cursor after it, which is an answer
+    # somebody edits rather than retypes. Everything else - dash, and the bash 3.2 that macOS still ships as
+    # /bin/sh - gets the default in brackets, where enter accepts it.
+    if [ -n "${BASH_VERSION:-}" ] && [ "${BASH_VERSION%%.*}" -ge 4 ] 2> /dev/null; then
+        printf 'Install to: ' >&3
+        # Readline reads the terminal as stdin, so the tty goes there rather than on fd 3.
+        read -r -e -i "$DEST" REPLY < /dev/tty || REPLY="$DEST"
+    else
+        ask "Install to [${DEST}]: "
+    fi
+
     if [ -n "$REPLY" ]; then
         # An answer typed at a prompt is not expanded by any shell, so a leading ~ would become a directory
         # with that name.
@@ -307,19 +319,26 @@ if [ -n "$ASKING" ]; then
         "~") REPLY="$HOME" ;;
         "~/"*) REPLY="${HOME}/${REPLY#\~/}" ;;
         esac
-        PREFIX="$REPLY"
+        # A directory was meant if it says so - it exists, or it ends in a slash - and then the file keeps the
+        # name it had. Anything else is the path of the file itself, which is also how to install it under
+        # another name.
+        case "$REPLY" in
+        */) DEST="${REPLY}nu-cli" ;;
+        *) if [ -d "$REPLY" ]; then DEST="${REPLY}/nu-cli"; else DEST="$REPLY"; fi ;;
+        esac
     fi
 fi
 
+PREFIX="$(dirname "$DEST")"
 mkdir -p "$PREFIX" || die "cannot create ${PREFIX}. Choose a directory you can write to, or pass --prefix."
 [ -w "$PREFIX" ] || die "${PREFIX} is not writable. Choose another directory, or pass --prefix."
 
 chmod 755 "${TMP}/${BINARY}"
 # mv within the same filesystem is atomic, so nobody can catch a half-written binary; across filesystems it
 # falls back to a copy, which is why the temporary directory is not under $PREFIX.
-mv -f "${TMP}/${BINARY}" "${PREFIX}/nu-cli"
+mv -f "${TMP}/${BINARY}" "$DEST"
 
-printf '\n%sinstalled%s %s\n' "$GREEN" "$OFF" "${PREFIX}/nu-cli"
+printf '\n%sinstalled%s %s\n' "$GREEN" "$OFF" "$DEST"
 
 case ":${PATH}:" in
 *":${PREFIX}:"*) ;;
@@ -334,11 +353,11 @@ esac
 
 # Runs it rather than trusting it, and shows what it says: the version out of the binary is the only proof
 # that what was installed is what was asked for.
-if reported=$("${PREFIX}/nu-cli" --version 2> /dev/null); then
+if reported=$("$DEST" --version 2> /dev/null); then
     printf '%s%s%s says it is %s%s%s\n\n' "$DIM" "nu-cli" "$OFF" "$BOLD" "$reported" "$OFF"
     [ "$reported" = "$VERSION" ] || printf '%snote: that is not %s, which is what this installed.%s\n\n' "$DIM" "$VERSION" "$OFF" >&2
 else
-    problem "${PREFIX}/nu-cli did not run."
+    problem "${DEST} did not run."
     note "On Alpine and other musl systems it needs libstdc++:"
     command_hint "apk add libstdc++"
     # Worth saying, because --target is the one way to end up with a binary for a machine that is not this

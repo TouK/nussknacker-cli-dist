@@ -233,15 +233,27 @@ try {
         } finally { $gzip.Dispose() }
     } finally { $source.Dispose() }
 
-    # Where it goes is asked rather than announced: enter takes the default, anything else typed replaces it.
+    # Where it goes is asked rather than announced, and what is asked about is the whole path, the file name
+    # included. Read-Host cannot put the default into the line the way readline does for the shell script, so
+    # it goes in brackets and enter accepts it.
+    $destination = Join-Path $Prefix 'nu-cli.exe'
     if ($asking) {
         Write-Host ""
-        $answer = Read-Host "Install to [$Prefix]"
-        if ($answer.Trim()) { $Prefix = $answer.Trim() }
+        $answer = (Read-Host "Install to [$destination]").Trim()
+        if ($answer) {
+            # A directory was meant if it says so - it exists, or it ends in a separator - and then the file
+            # keeps its name. Anything else is the path of the file itself.
+            if ($answer.EndsWith('\') -or $answer.EndsWith('/') -or (Test-Path -LiteralPath $answer -PathType Container)) {
+                $destination = Join-Path $answer 'nu-cli.exe'
+            } else {
+                $destination = $answer
+            }
+        }
     }
 
+    $Prefix = Split-Path -Parent $destination
     New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
-    $installed = Join-Path $Prefix 'nu-cli.exe'
+    $installed = $destination
     try {
         Move-Item -LiteralPath $binaryPath -Destination $installed -Force
     } catch {
