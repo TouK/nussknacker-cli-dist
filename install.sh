@@ -137,6 +137,7 @@ if [ -z "$VERSION" ]; then
             echo "  For the newest build of master, ask for a snapshot:" >&2
             echo "    sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)\" -- --snapshot" >&2
             echo "  The '--' is not decoration: without it the flag is taken as the script's own name." >&2
+            echo "  Every build there is, released or not, is listed at ${BASE}/releases" >&2
             exit 1
         }
     else
@@ -147,8 +148,13 @@ if [ -z "$VERSION" ]; then
         # Fetched on its own line, and quietly: through a pipe it is `tr`'s status that survives, so a 404
         # would pass for an empty file and the message would be about the wrong thing.
         marker=$(curl --fail --silent --location "${BASE}/releases/download/snapshot/latest.txt") || {
-            echo "install.sh: could not read ${BASE}/releases/download/snapshot/latest.txt" >&2
-            echo "  Either no snapshot has been published yet, or that is not where they go." >&2
+            # The pointer is moved by a build of master and by nothing else, so this is what somebody sees
+            # when the only builds published so far came from a branch - they exist, they are just not what
+            # `--snapshot` means. Saying where to look beats leaving them with a 404.
+            echo "install.sh: nothing is on the snapshot channel yet." >&2
+            echo "  It is moved by builds of master; anything published from a branch is installed by name:" >&2
+            echo "    ${BASE}/releases lists every build" >&2
+            echo "    sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)\" -- --version <version>" >&2
             exit 1
         }
         VERSION=$(printf '%s' "$marker" | tr -d ' \t\r\n')

@@ -103,9 +103,14 @@ try {
             try {
                 $Version = (Invoke-WebRequest -UseBasicParsing -Uri $marker).Content.Trim()
             } catch {
-                Write-Host "install.ps1: could not read $marker" -ForegroundColor Red
-                Write-Host '  Either no snapshot has been published yet, or that is not where they go.'
-                throw
+                # The pointer is moved by a build of master and by nothing else, so this is what somebody sees
+                # when the only builds published so far came from a branch: they exist, they are just not what
+                # -Snapshot means.
+                Write-Host 'install.ps1: nothing is on the snapshot channel yet.' -ForegroundColor Red
+                Write-Host '  It is moved by builds of master; anything published from a branch is installed by name:'
+                Write-Host "    $baseUrl/releases lists every build"
+                Write-Host "    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Version <version>"
+                throw "no snapshot to install"
             }
         } else {
             # `releases/latest` answers a redirect to `releases/tag/<version>`, so the released version can be
@@ -120,6 +125,7 @@ try {
                 Write-Host '  For the newest build of master, ask for a snapshot:'
                 Write-Host "    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1))) -Snapshot"
                 Write-Host '  A flag needs the scriptblock form: `irm ... | iex` has nowhere to pass it.'
+                Write-Host "  Every build there is, released or not, is listed at $baseUrl/releases"
                 throw "no release to install"
             }
         }
