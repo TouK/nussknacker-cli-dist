@@ -29,6 +29,8 @@ param(
     # Add the install directory to the user's PATH. Off by default: this script installs a file, and
     # changing the environment is a separate decision.
     [switch] $AddToPath,
+    # Ask nothing and take the defaults, for a script or an unattended machine.
+    [switch] $Yes,
     [switch] $Help
 )
 
@@ -45,6 +47,16 @@ function CommandHint([string] $text) {
     Write-Host "    $text" -ForegroundColor Cyan
 }
 
+# Nothing is asked where there is nobody to answer - a scheduled task, a build agent, a shell reading this
+# from a pipe - and -Yes (or $env:NU_CLI_YES) says so outright.
+$asking = -not ($Yes -or $env:NU_CLI_YES) -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+function Confirm([string] $question) {
+    if (-not $asking) { return $true }
+    $answer = Read-Host "$question [Y/n]"
+    return $answer -notmatch '^\s*n'
+}
+
 if ($Help) {
     @'
 install.ps1 - install nu-cli, the Nussknacker command line client, as a single executable
@@ -54,11 +66,13 @@ install.ps1 - install nu-cli, the Nussknacker command line client, as a single e
   -Prefix <dir>    where to put the binary (default: %LOCALAPPDATA%\Programs\nu-cli)
   -Target <name>   override the target (detection always says windows-x64)
   -AddToPath       add the install directory to the user PATH
+  -Yes             ask nothing; take the defaults
   -Help
 
   $env:NU_CLI_REPO       the GitHub repository the builds are published to
   $env:NU_CLI_BASE_URL   its address, if not https://github.com/<NU_CLI_REPO>
   $env:NU_CLI_PREFIX     same as -Prefix
+  $env:NU_CLI_YES        same as -Yes
 '@ | Write-Host
     return
 }
@@ -150,8 +164,30 @@ try {
     # `releases/latest/download/...` where that is what was asked for: one redirect rather than two, and it
     # stays correct if a release is published between these two requests.
     $base = if ($Snapshot -or $named) { "$baseUrl/releases/download/$Version" } else { "$baseUrl/releases/latest/download" }
+
+    # ---- what is about to happen -------------------------------------------------------------------
+
+    # Asked for, so that the size is the one thing said about the download that is not a guess.
+    $size = "size unknown"
+    try {
+        $head = Invoke-WebRequest -UseBasicParsing -Uri "$base/$archive" -Method Head
+        $bytes = [int64] $head.Headers['Content-Length'][0]
+        $size = "{0:N0} MB" -f [math]::Round($bytes / 1MB)
+    } catch {
+        # Not worth a word: the download says soon enough whether it is there.
+    }
+
+    Write-Host ""
     Write-Host "nu-cli $Version " -NoNewline
     Write-Host "($Target)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host ("  {0,-11} {1} " -f 'download', $archive) -NoNewline
+    Write-Host "($size)" -ForegroundColor DarkGray
+    Write-Host ("  {0,-11} {1}" -f 'from', $base)
+    Write-Host ("  {0,-11} {1}" -f 'install to', (Join-Path $Prefix 'nu-cli.exe'))
+    Write-Host ""
+
+    if (-not (Confirm 'Download it?')) { throw "nothing was downloaded." }
 
     # ---- download, check, install ----------------------------------------------------------------
 
@@ -181,6 +217,10 @@ try {
             "The download is not what was published - do not run it.")
     }
 
+    # Said out loud, because a checksum that is only checked in silence might as well not be checked.
+    Write-Host "  sha256 ok " -ForegroundColor Green -NoNewline
+    Write-Host "$($actual.Substring(0, 16).ToLowerInvariant())…" -ForegroundColor DarkGray
+
     # gzip without a gzip: GZipStream ships with .NET, so there is nothing to install first. The published
     # archive holds one file and carries no name for it, which is why the name is built above.
     $binaryPath = Join-Path $temp $binary
@@ -193,6 +233,13 @@ try {
         } finally { $gzip.Dispose() }
     } finally { $source.Dispose() }
 
+    # Where it goes is asked rather than announced: enter takes the default, anything else typed replaces it.
+    if ($asking) {
+        Write-Host ""
+        $answer = Read-Host "Install to [$Prefix]"
+        if ($answer.Trim()) { $Prefix = $answer.Trim() }
+    }
+
     New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
     $installed = Join-Path $Prefix 'nu-cli.exe'
     try {
@@ -204,6 +251,7 @@ try {
             "in an editor counts - and run this again.")
     }
 
+    Write-Host ""
     Write-Host "installed " -ForegroundColor Green -NoNewline
     Write-Host $installed
 
@@ -222,9 +270,18 @@ try {
         Write-Host ""
     }
 
-    # Proves the file runs here, which is the one thing a checksum cannot say.
-    & $installed --version > $null 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    # Runs it rather than trusting it, and shows what it says: the version out of the binary is the only proof
+    # that what was installed is what was asked for.
+    $reported = & $installed --version 2> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "nu-cli" -ForegroundColor DarkGray -NoNewline
+        Write-Host " says it is $reported"
+        Write-Host ""
+        if ($reported -ne $Version) {
+            Write-Host "note: that is not $Version, which is what this installed." -ForegroundColor DarkGray
+            Write-Host ""
+        }
+    } else {
         Problem "$installed did not run."
         Write-Host 'A binary fetched with -Target for another platform is not expected to run here.' -ForegroundColor DarkGray
         Write-Host ""

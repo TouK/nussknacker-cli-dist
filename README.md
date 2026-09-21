@@ -46,6 +46,12 @@ machine (musl included), verifies it against the published `SHA256SUMS`, unpacks
 | `--version <v>`   | that exact version                                   |
 | `--prefix <dir>`  | directory to install into, instead of `~/.local/bin` |
 | `--target <name>` | a platform other than the detected one               |
+| `-y`, `--yes`     | take the defaults and ask nothing                    |
+
+Run at a terminal it shows what it is about to fetch and how big it is, asks before downloading, and then
+asks where to put it — enter takes `~/.local/bin`, or type another directory. Where there is nobody to
+answer — a pipe, a container, a CI job — it asks nothing and takes the defaults, so the one-liner stays a
+one-liner. `--yes` is that same silence on purpose.
 
 Arguments go after a `--`, which stands in for the name a shell expects first:
 
@@ -77,10 +83,10 @@ the same job with what PowerShell has:
 irm https://raw.githubusercontent.com/TouK/nussknacker-cli-dist/main/install.ps1 | iex
 ```
 
-It installs `%LOCALAPPDATA%\Programs\nu-cli\nu-cli.exe`, and takes `-Version`, `-Snapshot`, `-Prefix`,
-`-Target` and `-AddToPath` — the last one because a Windows installer is expected to make the command
-work, while touching the environment is still a decision rather than a side effect. Without it, the
-script says the directory is not on `PATH` and leaves it at that.
+It installs `%LOCALAPPDATA%\Programs\nu-cli\nu-cli.exe`, asks the same two questions, and takes `-Version`,
+`-Snapshot`, `-Prefix`, `-Target`, `-Yes` and `-AddToPath` — the last one because a Windows installer is
+expected to make the command work, while touching the environment is still a decision rather than a side
+effect. Without it, the script says the directory is not on `PATH` and leaves it at that.
 
 Passing an argument needs the scriptblock form, since `iex` on a string has nowhere to put one:
 

@@ -67,13 +67,17 @@ install.sh - install nu-cli, the Nussknacker command line client, as a single ex
   --snapshot      the newest snapshot of master instead of the newest release
   --prefix <dir>  where to put the binary (default: ~/.local/bin, or $NU_CLI_PREFIX)
   --target <name> override platform detection, e.g. linux-x64-musl
+  -y, --yes       do not ask anything; take the defaults
   --help
 
   NU_CLI_REPO       the GitHub repository the builds are published to
   NU_CLI_BASE_URL   its address, if not https://github.com/<NU_CLI_REPO>
+  NU_CLI_YES        same as --yes
 EOF
     exit 0
 }
+
+YES="${NU_CLI_YES:-}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -81,10 +85,39 @@ while [ $# -gt 0 ]; do
     --snapshot) CHANNEL="snapshot" && shift ;;
     --prefix) PREFIX="${2:-}" && shift 2 || die "--prefix needs a value" ;;
     --target) TARGET="${2:-}" && shift 2 || die "--target needs a value" ;;
+    -y | --yes) YES=1 && shift ;;
     --help | -h) usage ;;
     *) die "unknown option '$1' (try --help)" ;;
     esac
 done
+
+# Questions go to the terminal on fd 3, not to stdin: the two documented ways to run this are
+# `sh -c "$(curl ...)"` and `curl ... | sh`, and in the second one stdin is the script being read. Where there
+# is no terminal to open - a container, a CI job, a pipeline - nothing is asked and the defaults stand, which
+# is what keeps the one-liner a one-liner.
+# Braced, so that the redirection silencing "no such device" belongs to the group rather than to `exec`
+# itself - an `exec` with only redirections applies them to the shell, and stderr would stay in /dev/null for
+# the rest of the run.
+if [ -z "$YES" ] && { exec 3<> /dev/tty; } 2> /dev/null; then
+    ASKING=yes
+else
+    ASKING=""
+fi
+
+ask() {
+    printf '%s' "$1" >&3
+    read -r REPLY <&3 || REPLY=""
+}
+
+# Yes unless told otherwise, since the person ran this to install something.
+confirm() {
+    [ -n "$ASKING" ] || return 0
+    ask "$1 [Y/n] "
+    case "$REPLY" in
+    [nN] | [nN][oO]) return 1 ;;
+    *) return 0 ;;
+    esac
+}
 
 command -v curl > /dev/null 2>&1 || die "curl is needed and was not found"
 
@@ -195,7 +228,24 @@ else
     FILES="${BASE}/releases/download/${VERSION}"
 fi
 
-printf '%snu-cli %s%s %s(%s)%s\n' "$BOLD" "$VERSION" "$OFF" "$DIM" "$TARGET" "$OFF"
+# ---- what is about to happen ---------------------------------------------------------------------
+
+# Asked with a HEAD request, so the size is the one thing said about the download that is not a guess. A
+# server that will not answer it costs nothing: the line is left out.
+size=$(curl --fail --silent --show-error --location --head "${FILES}/${ARCHIVE}" 2> /dev/null |
+    tr -d '\r' | sed -n 's/^[Cc]ontent-[Ll]ength: *//p' | tail -1)
+if [ -n "$size" ]; then
+    size=$(awk -v bytes="$size" 'BEGIN { printf "%.0f MB", bytes / 1048576 }')
+else
+    size="size unknown"
+fi
+
+printf '\n%snu-cli %s%s %s(%s)%s\n\n' "$BOLD" "$VERSION" "$OFF" "$DIM" "$TARGET" "$OFF"
+printf '  %-11s %s %s(%s)%s\n' "download" "$ARCHIVE" "$DIM" "$size" "$OFF"
+printf '  %-11s %s\n' "from" "$FILES"
+printf '  %-11s %s\n\n' "install to" "${PREFIX}/nu-cli"
+
+confirm "Download it?" || die "nothing was downloaded."
 
 # ---- download, check, install -------------------------------------------------------------------
 
@@ -203,8 +253,15 @@ TMP=$(mktemp -d)
 # The trap covers every exit, so a failed download leaves nothing behind.
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
-fetch --output "${TMP}/${ARCHIVE}" "${FILES}/${ARCHIVE}" ||
-    die "could not download ${ARCHIVE} of version ${VERSION}. Check the version, and that this target was published."
+# A progress bar where somebody is watching it, and silence in a log. Tens of megabytes is long enough that
+# silence reads as a hang.
+if [ -n "$ASKING" ] || [ -t 2 ]; then
+    curl --fail --show-error --location --progress-bar --output "${TMP}/${ARCHIVE}" "${FILES}/${ARCHIVE}" ||
+        die "could not download ${ARCHIVE} of version ${VERSION}. Check the version, and that this target was published."
+else
+    fetch --output "${TMP}/${ARCHIVE}" "${FILES}/${ARCHIVE}" ||
+        die "could not download ${ARCHIVE} of version ${VERSION}. Check the version, and that this target was published."
+fi
 fetch --output "${TMP}/SHA256SUMS" "${FILES}/SHA256SUMS" || die "could not download SHA256SUMS"
 
 if command -v sha256sum > /dev/null 2>&1; then
@@ -221,6 +278,10 @@ expected=$(sed -n "s/^\([0-9a-f]\{64\}\)  *${ARCHIVE}\$/\1/p" "${TMP}/SHA256SUMS
 [ -n "$expected" ] || die "SHA256SUMS of version ${VERSION} says nothing about ${ARCHIVE}"
 [ "$checksum" = "$expected" ] || die "checksum mismatch for ${ARCHIVE}: got ${checksum}, expected ${expected}. The download is not what was published - do not run it."
 
+# Said out loud, because a checksum that is only checked in silence might as well not be checked: this is the
+# line that tells somebody the bytes are the published ones.
+printf '  %ssha256 ok%s %s%s…%s\n' "$GREEN" "$OFF" "$DIM" "$(printf '%s' "$checksum" | cut -c1-16)" "$OFF"
+
 # Whichever of the three the machine has; they are the same program under different names, and a system
 # without any of them is rare enough to be worth a clear message rather than a fallback.
 if command -v gunzip > /dev/null 2>&1; then
@@ -233,13 +294,32 @@ else
     die "none of gunzip, gzip or zcat was found, and the download is gzipped"
 fi
 
-mkdir -p "$PREFIX"
+# Where it goes is asked rather than announced, and the answer is a directory: pressing enter takes the
+# default, and anything else typed replaces it - which is the whole of "somewhere other than ~/.local/bin"
+# without having to know that --prefix exists.
+if [ -n "$ASKING" ]; then
+    printf '\n' >&2
+    ask "Install to [${PREFIX}]: "
+    if [ -n "$REPLY" ]; then
+        # An answer typed at a prompt is not expanded by any shell, so a leading ~ would become a directory
+        # with that name.
+        case "$REPLY" in
+        "~") REPLY="$HOME" ;;
+        "~/"*) REPLY="${HOME}/${REPLY#\~/}" ;;
+        esac
+        PREFIX="$REPLY"
+    fi
+fi
+
+mkdir -p "$PREFIX" || die "cannot create ${PREFIX}. Choose a directory you can write to, or pass --prefix."
+[ -w "$PREFIX" ] || die "${PREFIX} is not writable. Choose another directory, or pass --prefix."
+
 chmod 755 "${TMP}/${BINARY}"
 # mv within the same filesystem is atomic, so nobody can catch a half-written binary; across filesystems it
 # falls back to a copy, which is why the temporary directory is not under $PREFIX.
 mv -f "${TMP}/${BINARY}" "${PREFIX}/nu-cli"
 
-printf '%sinstalled%s %s\n' "$GREEN" "$OFF" "${PREFIX}/nu-cli"
+printf '\n%sinstalled%s %s\n' "$GREEN" "$OFF" "${PREFIX}/nu-cli"
 
 case ":${PATH}:" in
 *":${PREFIX}:"*) ;;
@@ -252,11 +332,16 @@ case ":${PATH}:" in
     ;;
 esac
 
-"${PREFIX}/nu-cli" --version > /dev/null 2>&1 || {
+# Runs it rather than trusting it, and shows what it says: the version out of the binary is the only proof
+# that what was installed is what was asked for.
+if reported=$("${PREFIX}/nu-cli" --version 2> /dev/null); then
+    printf '%s%s%s says it is %s%s%s\n\n' "$DIM" "nu-cli" "$OFF" "$BOLD" "$reported" "$OFF"
+    [ "$reported" = "$VERSION" ] || printf '%snote: that is not %s, which is what this installed.%s\n\n' "$DIM" "$VERSION" "$OFF" >&2
+else
     problem "${PREFIX}/nu-cli did not run."
     note "On Alpine and other musl systems it needs libstdc++:"
     command_hint "apk add libstdc++"
     # Worth saying, because --target is the one way to end up with a binary for a machine that is not this
     # one, and then "did not run" is the expected outcome rather than a problem.
     printf '\n%sA binary fetched with --target for another platform is not expected to run here either.%s\n\n' "$DIM" "$OFF" >&2
-}
+fi
