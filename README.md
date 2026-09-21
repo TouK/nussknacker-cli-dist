@@ -1021,8 +1021,19 @@ Then create a topic in Nu Cloud with this schema.
 ## Versions
 
 There is one version number, the Nussknacker one — this client is not released on its own. `nu-cli -v`
-reports the version of the build it came from, down to the commit for a snapshot, so what you are running can
-be compared with the designer it is talking to.
+reports the build it came from, down to the commit for a snapshot, and `nu-cli whoami` prints the version of
+the instance it is pointed at.
+
+Comparing the two is left to you: nothing refuses to run on a mismatch, and a mismatch usually works. This
+client is built from the designer's own code, so the API it speaks is the one that designer version shipped
+with, and the parts that have not changed between the two versions behave the same. What fails is the part
+that did change — a command reaching for an endpoint that does not exist there, or a field renamed since —
+and it fails in that command rather than at start-up, which is why the version worth checking is the one in
+`whoami` when something behaves oddly.
+
+Of the two directions, a client older than the instance is likelier to be fine: it asks for what has already
+been there long enough to still be there. A client newer than the instance is where commands reach for
+things not yet built.
 
 ## License
 
