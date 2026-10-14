@@ -8,9 +8,7 @@ It holds **two unrelated tools** under one name. They talk to different machines
 and have a config file each; nothing carries over from one to the other, and `nu-cli --help` lists them
 apart for the same reason.
 
-**[Scenarios and deployments](#scenarios-and-deployments)** — a designer instance: what is on it, what the
-scenarios do, changing and deploying them. Also what an AI agent gets, since
-[the MCP server](#serving-an-ai-agent-mcp) serves this half.
+**[Scenarios and deployments](#scenarios-and-deployments)** — a [Designer](https://docs.nussknacker.io/about/GLOSSARY/#designer) instance: what is on it, what the [scenarios](https://docs.nussknacker.io/about/GLOSSARY/#scenario) do, changing and deploying them. Also what an AI agent gets, since [the MCP server](#serving-an-ai-agent-mcp) serves this half.
 
 ```bash
 nu-cli login --url https://your-designer.example --browser   # once
@@ -74,6 +72,35 @@ it the command is only there by its full path:
 
 Under WSL or Git Bash use `install.sh` instead: those want the Linux binary.
 
+### Updating
+
+An installed `nu-cli` replaces itself:
+
+```bash
+nu-cli update            # to the newest release
+nu-cli update --check    # only say whether there is one; exit code 1 when there is
+```
+
+It does what the installer does — the file for this machine, checked against the published `SHA256SUMS` —
+and puts it where the running executable is, whatever that was called and wherever it was put. At a
+terminal it asks before downloading; in a pipe or a CI job it does not.
+
+|                 |                                                    |
+| --------------- | -------------------------------------------------- |
+| `--snapshot`    | the newest snapshot of master instead of a release |
+| `--version <v>` | that exact version, newer or not                   |
+| `--check`       | compare and report, change nothing                 |
+| `-y`, `--yes`   | do not ask                                         |
+
+Nothing is done when the channel holds what is already installed, or something older — `--version` is the
+way to go back on purpose. The replacement is a rename, so a `nu-cli` running elsewhere — an MCP server in
+an editor — keeps its old file until it exits and gets the new one when it starts again. Windows will not
+let a running executable go: there the old one is set aside as `nu-cli.exe.old` and removed on the next
+start.
+
+Only the installed executable can do this. From a checkout, `nu-cli update` says so and stops: that is
+updated with `git pull` and a build.
+
 ### By hand
 
 From the [releases page](https://github.com/TouK/nussknacker-cli-dist/releases), or:
@@ -100,14 +127,35 @@ macOS kills a binary a _browser_ downloaded, silently — `xattr -d com.apple.qu
 and fetching with `curl` avoids it. This is also the file to point an agent's MCP config at: see
 [Serving an AI agent (MCP)](#serving-an-ai-agent-mcp).
 
+### Shell completion
+
+The same command in bash, zsh, fish and PowerShell, then a new shell:
+
+```sh
+nu-cli completion install
+```
+
+It tells which shell it is run from and adds the line that loads the completion to that shell's startup file
+(`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, `$PROFILE`; on macOS bash reads `~/.bash_profile`),
+printing the line and the file. Run again, it finds the line there and changes nothing.
+`nu-cli completion install zsh` names the shell when it is not the one the command runs in.
+
+TAB then completes commands, their options, and the values the CLI can know without asking a designer: the
+profiles in `designer.yaml` after `-p`, the shells after `completion`, a `--format`. Scenario names are
+not among them — they live on the instance, and a TAB should not wait on the network. A path option hands
+over to the shell's own file completion.
+
+The script the line loads is a few lines that never change: on every TAB it asks the binary on the `PATH` what
+fits, so the answer is always that of the build installed, and nothing needs regenerating after an upgrade.
+
 ## Scenarios and deployments
 
-_A Nussknacker designer: what is on it, what the scenarios do, and changing them. Configured by
+_A Nussknacker Designer: what is on it, what the scenarios do, and changing them. Configured by
 `nu-cli login`, in `designer.yaml`._
 
-### Talking to a designer
+### Talking to a Designer
 
-Every `scenario` command needs to know which designer to ask, and as whom. In order of precedence:
+Every `scenario` command needs to know which Designer to ask, and as whom. In order of precedence:
 
 | source            | example                                                           |
 | ----------------- | ----------------------------------------------------------------- |
@@ -117,7 +165,7 @@ Every `scenario` command needs to know which designer to ask, and as whom. In or
 | config profile    | `nu-cli scenario list --profile production`                       |
 | default           | `http://localhost:8080`                                           |
 
-That comes from `designer.yaml`, which is about a designer and nothing else:
+That comes from `designer.yaml`, which is about a Designer and nothing else:
 
 ```yaml
 profiles:
@@ -171,6 +219,13 @@ profiles:
 the first profile in it, so a config holding one instance under some other name works without naming it
 every time.
 
+One profile is there without being written down: `demo`, the public instance at
+`https://demo.nussknacker.io`, which lets anyone in anonymously — `nu-cli scenario list -p demo` works before
+you have logged in anywhere. It is only ever used when named: without `-p` the choice is made among the
+file's profiles alone, so a machine with no config still talks to `http://localhost:8080` rather than to the
+demo. A `demo` profile in the file is layered over the built-in one, so it can change the url or add a
+credential.
+
 A name that _is_ given and is not in the file is an **error**, not a quiet fall back — a typo should not
 point a deploy at a different instance. `nu-cli whoami` prints the profile actually in use.
 
@@ -183,12 +238,34 @@ nu-cli login --url https://staging.example -p cloud --browser
 That writes `profiles.cloud` — the url it was pointed at and the credential it obtained — without touching
 any other profile. Every command afterwards reaches it with `-p cloud`.
 
+`nu-cli profile list` shows what the files add up to:
+
+```
+$ nu-cli profile list
+   NAME     URL                          AUTH                      FILE
+*  default  https://staging.example      bearer                    user+project
+   cloud    https://cloud.example        bearer $CLOUD_TOKEN       user
+   legacy   https://legacy.example       basic alice $NU_PASSWORD  user
+   local    http://localhost:8080        none                      project
+   demo     https://demo.nussknacker.io  none                      built-in
+
+user     /home/you/.config/nussknacker-cli/designer.yaml
+project  /home/you/work/thing/.nussknacker-cli/designer.yaml
+```
+
+`*` marks the profile a command run from here would use — with `-p`, the one named, so `-p cloud` moves the
+mark and a typo fails the same way it fails every other command. `FILE` says which of the two files defines
+the profile, or `built-in` for `demo` when no file mentions it; one in both is layered like everything else,
+project over user, and that is the profile shown.
+A credential is reported by kind and, when the file names an environment variable, by that variable —
+never by its value. `--json` prints the same as data; `--config` lists that one file instead.
+
 #### Getting a token
 
-Instances that authenticate with OIDC hand the designer a token that lives in `sessionStorage`: scoped to
-the designer's own origin, per tab, and gone when the tab closes. **No page the CLI serves can read it** —
+Instances that authenticate with OIDC hand the Designer a token that lives in `sessionStorage`: scoped to
+the Designer's own origin, per tab, and gone when the tab closes. **No page the CLI serves can read it** —
 that is the same-origin policy, not a missing feature — so every route below ends with code running inside
-a designer tab.
+a Designer tab.
 
 **`nu-cli login --browser`** — nothing to install, nothing to restart:
 
@@ -198,7 +275,7 @@ nu-cli login --browser
 
 On an instance that signs in through a federated auth module — `strategy: "Remote"` in
 `/api/authentication/{provider}/settings`, which is what the cloud deployments use — the page does what the
-designer does when it has no token: it loads that same module, hands it React through the federation share
+Designer does when it has no token: it loads that same module, hands it React through the federation share
 scope, and lets its `useLogin` hook sign in. The CLI therefore needs to know nothing about the identity
 provider, and keeps working when its configuration changes.
 
@@ -210,7 +287,7 @@ bound to both loopback addresses, because `test.localhost` resolves to `::1` on 
 holds that port, and the CLI says so if it is taken.
 
 Everywhere else the same flag serves a page offering a bookmarklet to drag to the bookmarks bar (and the
-same line as a snippet, if you would rather paste into DevTools). Click it on your designer tab and the
+same line as a snippet, if you would rather paste into DevTools). Click it on your Designer tab and the
 token comes back. That hand-back is a navigation carrying the token in the URL fragment rather than a
 `fetch`, because a fetch from an https page to `http://127.0.0.1` is mixed content and browsers disagree
 about it; a fragment never reaches the server anyway.
@@ -221,7 +298,7 @@ about it; a fragment never reaches the server anyway.
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
     --remote-debugging-port=9222 --user-data-dir=/tmp/nu-cli-chrome &
 
-# log in to the designer in that window, then:
+# log in to the Designer in that window, then:
 nu-cli login --from-browser
 ```
 
@@ -375,11 +452,81 @@ Options:
 | ------------------ | --------------------------------------------------------------------------------- |
 | `-d, --details`    | each node's component type and main parameter                                     |
 | `--counts`         | event counts per node, right-aligned                                              |
+| `--live`           | the live counts of the running scenario instead (see below)                       |
 | `--format edges`   | `from -> to [label]` lines, plus an id/type/name table — for grepping and diffing |
 | `--format mermaid` | a diagram to paste into docs                                                      |
 | `--ascii`          | plain ASCII instead of box-drawing characters                                     |
 | `--spacing <n>`    | room around the connectors: 1 tight, 2 default, 3 airy — both directions at once  |
 | `--width <n>`      | wrap to this width instead of the terminal's                                      |
+
+### Deploying
+
+```bash
+nu-cli deploy orders --wait          # deploy the saved version and wait until it runs or fails
+nu-cli redeploy orders --wait 300    # replace the running version, waiting up to 300 seconds
+nu-cli cancel orders --wait
+```
+
+Deploying is asynchronous: without `--wait` the command returns as soon as the Designer accepts the request, and
+`nu-cli status` shows where it got to. `--wait [seconds]` (default 120) reads the state until the engine is done.
+RUNNING counts only once it has held for 15 seconds, because a job that fails and restarts passes through RUNNING
+on every attempt. The exit code is non-zero when the scenario ends up in PROBLEM or RESTARTING, or is still on its
+way when the time runs out. `cancel --wait` waits until each scenario has stopped.
+
+### Watching a running scenario
+
+`nu-cli live <name>` shows what a deployed scenario processes right now: events and errors per node,
+traffic per edge, the latest records that went along each edge, and recent exceptions.
+
+```
+orders  live  10:00:10
+
+NODE    EVENTS  ERRORS
+source     120       0
+filter     120       2
+
+EDGE             TOTAL  PER SEC  SAMPLES
+source → filter    120     2.50        2
+filter → (end)      80     1.67        1
+
+exceptions (1)
+  10:00:05  filter  java.lang.NullPointerException: amount is null
+```
+
+An edge ending in `(end)` holds the records that stopped in its node — a sink, or a filter that dropped
+them. The records themselves are long, so they are printed only with `--node`, which also narrows
+everything else to the edges touching that node; `--json` always carries them.
+
+The runtime sends sample records only while someone reads them, so the first read of a scenario nobody
+watches usually has counts alone. The command waits a few seconds for the records before answering.
+
+| flag                    | what it does                                                       |
+| ----------------------- | ------------------------------------------------------------------ |
+| `-n, --node <id>`       | only that node's counts, edges and exceptions, with sample records |
+| `--samples <n>`         | records kept per edge (default 3)                                  |
+| `--wait <seconds>`      | how long to wait for the records (default 5; 0 answers at once)    |
+| `-w, --watch [seconds]` | read again every few seconds (default 2) until interrupted         |
+
+The scenario has to be running, its engine has to collect live data, and the user needs the right to view it;
+otherwise the command says which of these is missing.
+
+### Creating a scenario
+
+```bash
+nu-cli scenario create orders
+nu-cli scenario create pricing --mode Request-Response --engine "Lite Embedded"
+nu-cli scenario create fare --fragment --mode Request-Response
+```
+
+The new scenario is empty; its graph comes from `scenario add-node` and the commands below, or from
+`scenario save --file`. An instance accepts only certain combinations of category, processing mode and engine, so
+the flags are matched against them: leave out whatever the instance has one choice for, and an ambiguous or unknown
+combination is answered with the ones it offers.
+
+`--fragment` creates a fragment: a piece of flow other scenarios use as a single node. It starts with a fragment
+input (`builtin-input`), whose parameters become the parameters of that node, and ends in fragment outputs
+(`builtin-output`), each one an outgoing edge of that node. Only scenarios with the fragment's own category,
+processing mode and engine can use it, so create it with theirs.
 
 ### Changing a scenario's structure
 
@@ -396,7 +543,7 @@ nu-cli scenario disconnect orders "big orders only" "archive"
 nu-cli scenario rm-node orders "archive"
 ```
 
-Nodes are named by id or by the name the graph shows. A component id is the one the designer's toolbox uses
+Nodes are named by id or by the name the graph shows. A component id is the one the Designer's toolbox uses
 (`builtin-filter`, `sink-dead-end`, ...); guess it wrong and the answer lists the ones that come close. A new node
 is named after its component unless `--node-name` says otherwise, and a name already taken gets a number.
 
@@ -404,73 +551,163 @@ A graph built from here needs arranging before anyone opens it: nodes are placed
 arrive, so branches land on top of each other, and a graph saved from a file may carry no positions at all.
 
 ```bash
-nu-cli scenario layout orders              # top to bottom, as the designer reads
+nu-cli scenario layout orders              # top to bottom, as the Designer reads
 nu-cli scenario layout orders --horizontal # left to right
 ```
 
-That is the designer's own auto-layout — the same algorithm, options and spacing as its Layout button, run here
+That is the Designer's own auto-layout — the same algorithm, options and spacing as its Layout button, run here
 instead of in the browser — so a scenario an agent built opens looking like one a person arranged.
 
-The rules are the designer's own, run by the same code as the canvas: how many inputs and outputs a node has,
+The rules are the Designer's own, run by the same code as the canvas: how many inputs and outputs a node has,
 which kinds of edge it offers, what a join does with a branch it gains or loses. An edit the canvas would not
 allow is refused with the rule that refused it (exit 5), and the draft stays as it was. Inserting onto an edge
 needs only one side to fit - a source inserted that way is connected by its output alone, as on the canvas.
 
+### Archiving and deleting
+
+```bash
+nu-cli scenario archive orders old-orders-copy
+nu-cli scenario list --archived
+nu-cli scenario unarchive orders
+nu-cli scenario delete old-orders-copy
+```
+
+Archiving takes a scenario out of the lists and out of reach of edits and deployments; unarchiving brings it back
+whole. A running scenario cannot be archived - `nu-cli cancel` it first. These commands, `nu-cli cancel` and
+`nu-cli status` take any number of names and go through them one by one: one scenario failing does not stop the
+others, and the exit code says whether all of them went.
+
+`delete` removes scenarios for good, with every version and their history. Whatever is not archived yet is archived
+first, so a running scenario is refused here too. Every name is looked up before anything is deleted, and in a
+terminal you are asked to confirm the list each time, with "no" as the default. Without a terminal, or with
+`--json`, the command refuses unless `--yes` is given.
+
+### Kafka topics
+
+On a Designer with the topics extension (the one behind its Topics tab), `topic` manages its Kafka topics and
+their schemas:
+
+```bash
+nu-cli topic list
+nu-cli topic get orders
+nu-cli topic preview orders                          # the latest messages, at most 30
+nu-cli topic create orders --schema-file orders.schema.json
+nu-cli topic create orders --schema '{"type":"object"}' --if-exists update
+cat orders.avsc | nu-cli topic create orders --schema-type AVRO --schema-file -
+nu-cli topic create                                  # a random name, no schema
+nu-cli topic update orders --retention 72            # the schema stays as it is
+nu-cli topic update orders --schema-file v2.json     # registered as a new schema version
+nu-cli topic update orders --remove-schema
+nu-cli topic apply --dir contracts/topics            # one topic per <name>.schema.json
+nu-cli topic delete orders                           # asks first, --yes where nobody can be asked
+```
+
+`create` is safe to repeat. A topic that already has the given settings is left alone (`unchanged`), and
+`--if-exists` decides what happens to one that differs: `fail` (the default), `skip`, or `update`. Schemas are
+compared by content, so a schema the registry handed back with its keys reordered still matches.
+
+`delete` removes a topic for good, with every message on it and its schema. Like `scenario delete`, it looks the
+topic up first and asks every time, with "no" as the default; without a terminal, or with `--json`, it refuses
+unless `--yes` is given.
+
+`update` changes only what it is given. The schema stays unless a new one is passed or `--remove-schema` asks for
+its deletion.
+
+`apply` runs `create --if-exists update` for every `<name>.schema.json` file in a directory (`--suffix` changes
+the ending, `--schema-type` and `--retention` apply to all of them) and prints what happened to each. Topics
+without a file are left alone, so nothing is ever deleted. It exits non-zero when any file failed.
+
+These commands run the same tool definitions as the agent tools of the same names, below.
+
 ### Serving an AI agent (MCP)
 
-`nu-cli mcp` serves the designer to an AI agent as MCP tools over stdio. They are the designer's own AI tools
+`nu-cli mcp` serves the Designer to an AI agent as MCP tools over stdio. They are the Designer's own AI tools
 under the same names (`list_scenarios`, `get_scenario`, `change_scenario_values`, `get_validation_results`,
 ...), with one difference that follows from where they run: nothing is "currently opened" in a terminal, so
 every scenario tool takes `scenarioName`. Edits land in the same local draft `nu-cli scenario set` writes, so
 `nu-cli scenario diff` shows a person what the agent changed before anything is saved.
 
-`list_skills` and `get_skill` hand over the designer's own playbooks — the markdown it publishes beside the app —
-so an agent plans a multi-step request the way the designer's assistant would. They are read from the instance,
+`get_instance_info` says which instance the agent talks to, as whom, and whether it is Nu Cloud or on-premise: on
+Nu Cloud, users and the instance are administered in the tenant manager (the user menu's "Admin"), on-premise by the
+installation's own admins, so the agent can point the user to the right place. `nu-cli whoami` prints the same.
+
+`list_skills` and `get_skill` hand over the Designer's own playbooks — the markdown it publishes beside the app —
+so an agent plans a multi-step request the way the Designer's assistant would. They are read from the instance,
 not from this package, so they are always the ones that instance ships; an instance too old to publish any says
 so plainly instead of failing.
 
-Registering it takes one line in Claude Code:
+`create_scenario` with `isFragment: true` creates a fragment, as `nu-cli scenario create --fragment` does, and its
+description tells the agent how a fragment's input and outputs work.
 
-```bash
-claude mcp add nussknacker -- nu-cli mcp --profile default
+The agent's client starts the server and talks to it over stdin and stdout, so it is registered there rather
+than run. Run `nu-cli mcp` in a terminal and it prints what to register instead of serving: a server for every
+profile in `designer.yaml`, with the full path to this executable and any other flag given on that line.
+`nu-cli mcp -p staging --allow-write` prints that one server. The output looks like this:
+
+```
+Claude Code:
+
+  claude mcp add nussknacker-local -- /Users/me/.local/bin/nu-cli mcp -p local
+  claude mcp add nussknacker-staging -- /Users/me/.local/bin/nu-cli mcp -p staging
+
+clients configured with JSON (Claude Desktop, Cursor, ...):
+
+  {
+    "mcpServers": {
+      "nussknacker-local": { "command": "/Users/me/.local/bin/nu-cli", "args": ["mcp", "-p", "local"] },
+      "nussknacker-staging": { "command": "/Users/me/.local/bin/nu-cli", "args": ["mcp", "-p", "staging"] }
+    }
+  }
 ```
 
-and a block of this shape in most other clients (Claude Desktop's `claude_desktop_config.json`, Cursor's
-`.cursor/mcp.json`):
+One server serves one Designer, and what it may do there is set by its own flags - so an agent may save on a
+local Designer and only read staging, as two servers with two sets of flags. The profile in the name is what
+tells them apart in the client.
 
-```json
-{ "mcpServers": { "nussknacker": { "command": "nu-cli", "args": ["mcp", "--profile", "default"] } } }
-```
-
-Give `command` the **full path** to the executable if the agent runs where `~/.local/bin` is not on the
-`PATH`, which is most GUI applications. Having one file to point at, with no `npx` and no Node to install
-first, is what the standalone build is for.
+`command` is the **full path** to the executable because most GUI clients do not have `~/.local/bin` on their
+`PATH`. Having one file to point at, with no `npx` and no Node to install first, is what the standalone build
+is for. A client reads its servers when it starts, so restart or reload it after adding one.
 
 There is nobody on stdio to confirm a call, so what the server may do is decided by the flags it starts with.
 A tool that is not allowed is not listed at all:
 
-| flag                    | tools it adds                                                                      |
-| ----------------------- | ---------------------------------------------------------------------------------- |
-| _(none)_                | reading scenarios, components and validation; editing and discarding the draft     |
-| `--allow-write`         | `create_scenario`, `save_scenario`                                                 |
-| `--allow-deploy`        | `deploy_scenario`, `cancel_scenario`, `send_message`                               |
-| `--dry-run`             | everything, but writes answer with the request they would send, and send none      |
-| `--allow-remote-writes` | nothing - lets the two `--allow-*` flags work against a designer that is not local |
+| flag             | tools it adds                                                                                                  |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| _(none)_         | reading scenarios, components and validation; editing and discarding the draft                                 |
+| `--allow-write`  | `create_scenario`, `save_scenario`, `archive_scenarios`, `unarchive_scenarios`, `create_topic`, `update_topic` |
+| `--allow-deploy` | `deploy_scenario`, `redeploy_scenario`, `cancel_scenarios`, `send_message`                                     |
+| `--allow-delete` | `delete_scenarios`, `delete_topic`                                                                             |
+| `--dry-run`      | everything, but writes answer with the request they would send, and send none                                  |
 
-The last one is a safety net, not a formality: a production profile left as the default is exactly how an agent
-would end up deploying somewhere it should not, so against anything but `localhost` the write flags are refused
-until they are asked for twice. `send_message` sends to the topic from `data.yaml`; `--data-profile` picks its
+Deleting is the one exception to "the flags decide". `delete_scenarios` takes a whole list, so an agent can clean
+up in one call, and every call asks the person behind the client to confirm. The question goes out as an MCP
+elicitation: the client shows the list of scenarios and asks for a phrase, `delete <name>` for one or
+`delete <N> scenarios` for several. The tool's description tells the agent to put that phrase in the chat
+beforehand, ready to paste. `delete_topic` asks the same way, for one topic and the phrase `delete <name>`.
+Declining, or typing anything else, deletes nothing. A client that does not support
+elicitation cannot delete at all; nothing skips the question.
+
+The flags mean the same on any Designer, local or not: whether an agent may change one is decided by which
+server it is registered under. `send_message` sends to the topic from `data.yaml`; `--data-profile` picks its
 profile.
 
+A graph that already sits in a file does not have to pass through the agent's context: `import_scenario_graph`
+takes `file` instead of `scenarioGraph`, a `.json` file inside `~/.local/state/nussknacker/graphs` (under
+`$XDG_STATE_HOME` when set, created when the server starts). The agent copies the file there and passes its name.
+Nothing outside that directory is read, symlinks included; `--files-dir` points the server at another one. The
+answer lists what the import added, removed and modified compared to the draft it replaced.
+
 Every tool that can fail answers with `{ "status": "rejected", "reason": ... }` instead of an error the agent
-cannot read, and stdout carries nothing but the protocol.
+cannot read, and stdout carries nothing but the protocol. The tools that take `scenarioNames` - archiving,
+deleting, cancelling and reading statuses - answer per scenario instead, `{ name, ok: true }` or
+`{ name, ok: false, reason }`, so one scenario failing does not hide what happened to the others.
 
 What the agent did goes to a file, a line per call - `~/.local/state/nussknacker/mcp.log` (under
 `$XDG_STATE_HOME` when set), or wherever `--log-file` points. stderr is not used for it: it ends up wherever the
 MCP client puts it, which is rarely where a person looks. `tail -f` the file while an agent works:
 
 ```
-2026-09-14T20:51:03.120Z  --- nu-cli mcp (pid 89022) → https://staging.example (profile default) · write dry run, deploy dry run
+2026-09-14T20:51:03.120Z  --- nu-cli mcp (pid 89022) → https://staging.example (profile default) · write dry run, deploy dry run, delete dry run
 2026-09-14T20:51:08.337Z  get_scenario              orders                    ok           93ms
 2026-09-14T20:51:09.012Z  deploy_scenario           orders                    dry run       2ms  POST https://staging.example/api/processManagement/deploy/orders
 2026-09-14T20:51:09.140Z  get_scenario              missing                   rejected     61ms  Not found (404): /processes/missing
@@ -486,12 +723,13 @@ drop one of them. Reads never wait.
 
 #### What the agent gets
 
-| access           | tools                                                                                                                                                                                         |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| read             | `list_scenarios` `get_scenario` `get_scenario_status` `get_validation_results` `get_components` `get_component_definition` `list_configured_services` `list_skills` `get_skill`               |
-| draft (default)  | `change_scenario_values` `add_node` `add_node_between` `replace_node` `delete_node` `add_edge` `delete_edge` `apply_scenario_graph` `import_scenario_graph` `run_auto_layout` `discard_draft` |
-| `--allow-write`  | `create_scenario` `save_scenario`                                                                                                                                                             |
-| `--allow-deploy` | `deploy_scenario` `cancel_scenario` `send_message`                                                                                                                                            |
+| access           | tools                                                                                                                                                                                                                                                                                               |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| read             | `list_scenarios` `get_scenario` `get_scenario_statuses` `wait_for_scenario_status` `get_live_data` `get_validation_results` `get_components` `get_component_definition` `list_configured_services` `get_instance_info` `list_skills` `get_skill` `list_topics` `get_topic` `preview_topic_messages` |
+| draft (default)  | `change_scenario_values` `change_scenario_labels` `add_node` `add_node_between` `replace_node` `delete_node` `add_edge` `delete_edge` `apply_scenario_graph` `import_scenario_graph` `run_auto_layout` `discard_draft`                                                                              |
+| `--allow-write`  | `create_scenario` `save_scenario` `archive_scenarios` `unarchive_scenarios` `create_topic` `update_topic`                                                                                                                                                                                           |
+| `--allow-deploy` | `deploy_scenario` `redeploy_scenario` `cancel_scenarios` `send_message`                                                                                                                                                                                                                             |
+| `--allow-delete` | `delete_scenarios` `delete_topic` - each call confirmed by the person, see above                                                                                                                                                                                                                    |
 
 #### If you are an agent setting this up
 
@@ -500,7 +738,7 @@ Run these in order and stop at the first one that fails:
 ```bash
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/TouK/nussknacker-cli-dist/main/install.sh)"
 ~/.local/bin/nu-cli --version
-~/.local/bin/nu-cli whoami            # needs a designer and a token first: `nu-cli login --help`
+~/.local/bin/nu-cli whoami            # needs a Designer and a token first: `nu-cli login --help`
 ~/.local/bin/nu-cli scenario list
 ```
 
@@ -508,16 +746,24 @@ On Windows the first line is `irm …/nussknacker-cli-dist/main/install.ps1 | ie
 `%LOCALAPPDATA%\Programs\nu-cli\nu-cli.exe`. If the install reports that there is no release yet, say so and
 ask before reaching for `-- --snapshot`.
 
-Then register the server with the full path to the binary, since your host process probably does not have
-`~/.local/bin` on its `PATH`. Before acting:
+Then register the servers. Your shell is not a terminal, so a bare `nu-cli mcp` would start serving instead of
+printing what to register: read `nu-cli mcp --help`, which ends with the lines to use and this executable's full
+path in them, and `nu-cli profile list` for the profiles to fill in. Before acting:
 
+- Register one server per profile the person wants to use, named `nussknacker-<profile>`, each with
+  `-p <profile>`. Ask which ones; a profile pointing at production is not one to add unasked.
+- Before creating or modifying a scenario, call the MCP tool `list_skills`, then `get_skill` with the
+  exact names of relevant skills. Start with `get_skill({"name":"scenario-authoring"})` if it is listed.
+  These are MCP calls, not shell commands; if the instance serves no skills, continue without them.
 - `nu-cli login --browser` needs a human at a browser. Print the command and ask for it; do not try to
   automate a sign-in.
-- Start without `--allow-write` and `--allow-deploy`. Draft edits are local and reversible; saving and
-  deploying are neither. Ask before requesting either, and say which instance `whoami` reported.
+- Start without `--allow-write`, `--allow-deploy` and `--allow-delete`. Draft edits are local and reversible;
+  saving, deploying and deleting are not. Ask before requesting any of them, for each server separately, and
+  say which instance it points at.
+- Tell the person to restart or reload the client: it reads its servers when it starts.
 - Prefer the draft loop over one large `apply_scenario_graph`: make the change, call
   `get_validation_results`, and tell the person to run `nu-cli scenario diff <name>` before you save.
-- A `{ "status": "rejected" }` answer is the designer refusing, not a transport failure. Read `reason` and
+- A `{ "status": "rejected" }` answer is the Designer refusing, not a transport failure. Read `reason` and
   change the request; retrying it unchanged fails identically.
 - Do not write to stdout from a wrapper around `nu-cli mcp` — stdout is the protocol, and one stray line
   breaks the client's framing.
@@ -554,7 +800,7 @@ the two share nothing but the binary._
 
 #### `nu-cli init-data`
 
-Sets up the data config — a topic to send messages to. A designer instance is a config of its own, and that
+Sets up the data config — a topic to send messages to. A Designer instance is a config of its own, and that
 one is `nu-cli login`.
 
 The name says which of the two worlds it sets up; plain `init` reads like it initialises the CLI as a whole,
@@ -964,8 +1210,8 @@ nu-cli consume --port 9000 --no-tunnel
 | ------------------------------------------- | --------------------------------------- |
 | `~/.local/bin/nu-cli`                       | the executable                          |
 | `%LOCALAPPDATA%\Programs\nu-cli\nu-cli.exe` | the same, on Windows                    |
-| `./.nussknacker-cli/designer.yaml`          | this directory's designer, layered over |
-| `~/.config/nussknacker-cli/designer.yaml`   | your designer profiles and credentials  |
+| `./.nussknacker-cli/designer.yaml`          | this directory's Designer, layered over |
+| `~/.config/nussknacker-cli/designer.yaml`   | your Designer profiles and credentials  |
 | `~/.config/nussknacker-cli/data.yaml`       | topic endpoints, written by `init-data` |
 | `~/.local/state/nussknacker/mcp.log`        | a line per MCP tool call                |
 
@@ -1025,7 +1271,7 @@ reports the build it came from, down to the commit for a snapshot, and `nu-cli w
 the instance it is pointed at.
 
 Comparing the two is left to you: nothing refuses to run on a mismatch, and a mismatch usually works. This
-client is built from the designer's own code, so the API it speaks is the one that designer version shipped
+client is built from the Designer's own code, so the API it speaks is the one that Designer version shipped
 with, and the parts that have not changed between the two versions behave the same. What fails is the part
 that did change — a command reaching for an endpoint that does not exist there, or a field renamed since —
 and it fails in that command rather than at start-up, which is why the version worth checking is the one in
