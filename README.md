@@ -11,7 +11,7 @@ apart for the same reason.
 **[Scenarios and deployments](#scenarios-and-deployments)** — a [Designer](https://docs.nussknacker.io/about/GLOSSARY/#designer) instance: what is on it, what the [scenarios](https://docs.nussknacker.io/about/GLOSSARY/#scenario) do, changing and deploying them. Also what an AI agent gets, since [the MCP server](#serving-an-ai-agent-mcp) serves this half.
 
 ```bash
-nu-cli login --url https://your-designer.example --browser   # once
+nu-cli login --url https://your-designer.example --token-stdin < token.txt   # once, with a Nussknacker API token
 nu-cli scenario list                                         # what is on this instance
 nu-cli scenario graph fraud-detection                        # what that scenario actually does
 nu-cli scenario validate fraud-detection                     # why it will not deploy
@@ -232,7 +232,7 @@ point a deploy at a different instance. `nu-cli whoami` prints the profile actua
 `login` is the exception, because it is how a profile comes into existence:
 
 ```bash
-nu-cli login --url https://staging.example -p cloud --browser
+nu-cli login --url https://staging.example -p cloud --token-stdin < token.txt
 ```
 
 That writes `profiles.cloud` — the url it was pointed at and the credential it obtained — without touching
@@ -262,10 +262,33 @@ never by its value. `--json` prints the same as data; `--config` lists that one 
 
 #### Getting a token
 
-Instances that authenticate with OIDC hand the Designer a token that lives in `sessionStorage`: scoped to
-the Designer's own origin, per tab, and gone when the tab closes. **No page the CLI serves can read it** —
-that is the same-origin policy, not a missing feature — so every route below ends with code running inside
-a Designer tab.
+The credential to prefer is a **Nussknacker API token**: a `nuk_...` string shown once when issued, scoped by
+RBAC roles, with an expiry, and revocable in the Designer under Administration > Access control. Where it comes
+from depends on how you sign in to that Designer:
+
+- a **local user** (an instance with its own user list) issues their own under Access control > API tokens;
+- a user signing in through **OIDC** cannot have personal tokens (their permissions come with each sign-in), so
+  ask an administrator for a token of a **service account** with the roles you need - that is the way for CI jobs
+  and for using the CLI by hand alike;
+- without either, log in with the browser session described below.
+
+Hand it to the CLI without putting it in the shell history, and name the Designer it is for - without `--url`
+`login` writes the credential into whatever instance the profile names (or `localhost:8080`):
+
+```bash
+nu-cli login --url https://your-designer.example                            # a hidden prompt to paste it into
+nu-cli login --url https://your-designer.example --token-stdin < token.txt  # from a file, or: pbpaste | nu-cli login ... --token-stdin
+```
+
+`--token-stdin` reads the whole input, so it needs a redirection or a pipe; pasting at a terminal and pressing
+Enter leaves it waiting (and the token on screen) - that is what the flagless prompt is for. `nu-cli login
+--token <t>` takes it as an argument, which is fine in a script that already holds it. In CI set `$NU_URL` and
+`$NU_TOKEN` instead and skip `login` altogether.
+
+**Second choice: a browser session.** Instances that authenticate with OIDC hand the Designer a session
+token that lives in `sessionStorage`: scoped to the Designer's own origin, per tab, gone when the tab closes,
+and tied to your own account. **No page the CLI serves can read it** — that is the same-origin policy, not a
+missing feature — so every route below ends with code running inside a Designer tab.
 
 **`nu-cli login --browser`** — nothing to install, nothing to restart:
 
@@ -308,14 +331,16 @@ Either way the token goes into the config and nowhere else — it is never print
 `GET /user` before being stored, so a token that does not work fails here instead of on every command
 afterwards.
 
-The remaining ways in:
+All the ways in, preferred first:
 
-| flag                  | for                                             |
-| --------------------- | ----------------------------------------------- |
-| `--token <t>`         | a token you already hold                        |
-| `--token-stdin`       | CI, where it comes from a secret store          |
-| `--basic-user <name>` | instances that authenticate with basic auth     |
-| _(no flag)_           | a hidden prompt, for pasting a token in by hand |
+| flag                  | for                                                      |
+| --------------------- | -------------------------------------------------------- |
+| `--token-stdin`       | a Nussknacker API token from a file, the clipboard or CI |
+| _(no flag)_           | a hidden prompt, for pasting a Nussknacker API token in  |
+| `--token <t>`         | a token you already hold in a script                     |
+| `--browser`           | the session token of a Designer tab, with a click there  |
+| `--from-browser`      | the session token, read from a Chrome with DevTools open |
+| `--basic-user <name>` | instances that authenticate with basic auth              |
 
 `--basic-user` never takes the password as an argument — that would put it in the shell history and in the
 process list. It reads `$NU_PASSWORD`, or asks. A password that came from the environment stays there:
@@ -514,7 +539,7 @@ otherwise the command says which of these is missing.
 
 ```bash
 nu-cli scenario create orders
-nu-cli scenario create pricing --mode Request-Response --engine "Lite Embedded"
+nu-cli scenario create pricing --mode Request-Response --engine "Embedded"
 nu-cli scenario create fare --fragment --mode Request-Response
 ```
 
@@ -627,9 +652,10 @@ under the same names (`list_scenarios`, `get_scenario`, `change_scenario_values`
 every scenario tool takes `scenarioName`. Edits land in the same local draft `nu-cli scenario set` writes, so
 `nu-cli scenario diff` shows a person what the agent changed before anything is saved.
 
-`get_instance_info` says which instance the agent talks to, as whom, and whether it is Nu Cloud or on-premise: on
-Nu Cloud, users and the instance are administered in the tenant manager (the user menu's "Admin"), on-premise by the
-installation's own admins, so the agent can point the user to the right place. `nu-cli whoami` prints the same.
+`get_instance_info` says which instance the agent talks to, as whom, and whether it is Nu Cloud or self-managed: on
+Nu Cloud, users and the instance are administered in the tenant manager (the user menu's "Admin"), on a self-managed
+one by the installation's own admins, so the agent can point the user to the right place. `nu-cli whoami` prints the
+same.
 
 `list_skills` and `get_skill` hand over the Designer's own playbooks — the markdown it publishes beside the app —
 so an agent plans a multi-step request the way the Designer's assistant would. They are read from the instance,
@@ -691,11 +717,10 @@ The flags mean the same on any Designer, local or not: whether an agent may chan
 server it is registered under. `send_message` sends to the topic from `data.yaml`; `--data-profile` picks its
 profile.
 
-A graph that already sits in a file does not have to pass through the agent's context: `import_scenario_graph`
-takes `file` instead of `scenarioGraph`, a `.json` file inside `~/.local/state/nussknacker/graphs` (under
-`$XDG_STATE_HOME` when set, created when the server starts). The agent copies the file there and passes its name.
-Nothing outside that directory is read, symlinks included; `--files-dir` points the server at another one. The
-answer lists what the import added, removed and modified compared to the draft it replaced.
+A graph that already sits in a file does not have to pass through the agent's context: `apply_scenario_graph`
+takes `file` instead of `nodes`, `edges` and `properties`, a `.json` file inside `~/.local/state/nussknacker/graphs`
+(under `$XDG_STATE_HOME` when set, created when the server starts). The agent copies the file there and passes its
+name. Nothing outside that directory is read, symlinks included; `--files-dir` points the server at another one.
 
 Every tool that can fail answers with `{ "status": "rejected", "reason": ... }` instead of an error the agent
 cannot read, and stdout carries nothing but the protocol. The tools that take `scenarioNames` - archiving,
@@ -723,13 +748,13 @@ drop one of them. Reads never wait.
 
 #### What the agent gets
 
-| access           | tools                                                                                                                                                                                                                                                                                               |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| read             | `list_scenarios` `get_scenario` `get_scenario_statuses` `wait_for_scenario_status` `get_live_data` `get_validation_results` `get_components` `get_component_definition` `list_configured_services` `get_instance_info` `list_skills` `get_skill` `list_topics` `get_topic` `preview_topic_messages` |
-| draft (default)  | `change_scenario_values` `change_scenario_labels` `add_node` `add_node_between` `replace_node` `delete_node` `add_edge` `delete_edge` `apply_scenario_graph` `import_scenario_graph` `run_auto_layout` `discard_draft`                                                                              |
-| `--allow-write`  | `create_scenario` `save_scenario` `archive_scenarios` `unarchive_scenarios` `create_topic` `update_topic`                                                                                                                                                                                           |
-| `--allow-deploy` | `deploy_scenario` `redeploy_scenario` `cancel_scenarios` `send_message`                                                                                                                                                                                                                             |
-| `--allow-delete` | `delete_scenarios` `delete_topic` - each call confirmed by the person, see above                                                                                                                                                                                                                    |
+| access           | tools                                                                                                                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| read             | `list_scenarios` `get_scenario` `get_scenario_statuses` `get_scenario_diagnostics` `wait_for_scenario_status` `get_live_data` `get_validation_results` `get_components` `get_component_definition` `list_configured_services` `get_instance_info` `list_skills` `get_skill` `list_topics` `get_topic` `preview_topic_messages` |
+| draft (default)  | `change_scenario_values` `change_scenario_labels` `add_node` `add_node_between` `replace_node` `delete_node` `add_edge` `delete_edge` `apply_scenario_graph` `run_auto_layout` `discard_draft`                                                                                                                                 |
+| `--allow-write`  | `create_scenario` `save_scenario` `archive_scenarios` `unarchive_scenarios` `create_topic` `update_topic`                                                                                                                                                                                                                      |
+| `--allow-deploy` | `deploy_scenario` `redeploy_scenario` `cancel_scenarios` `send_message`                                                                                                                                                                                                                                                        |
+| `--allow-delete` | `delete_scenarios` `delete_topic` - each call confirmed by the person, see above                                                                                                                                                                                                                                               |
 
 #### If you are an agent setting this up
 
@@ -738,7 +763,7 @@ Run these in order and stop at the first one that fails:
 ```bash
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/TouK/nussknacker-cli-dist/main/install.sh)"
 ~/.local/bin/nu-cli --version
-~/.local/bin/nu-cli whoami            # needs a Designer and a token first: `nu-cli login --help`
+~/.local/bin/nu-cli whoami            # needs a Designer and a Nussknacker API token first: `nu-cli login --help`
 ~/.local/bin/nu-cli scenario list
 ```
 
@@ -755,8 +780,11 @@ path in them, and `nu-cli profile list` for the profiles to fill in. Before acti
 - Before creating or modifying a scenario, call the MCP tool `list_skills`, then `get_skill` with the
   exact names of relevant skills. Start with `get_skill({"name":"scenario-authoring"})` if it is listed.
   These are MCP calls, not shell commands; if the instance serves no skills, continue without them.
-- `nu-cli login --browser` needs a human at a browser. Print the command and ask for it; do not try to
-  automate a sign-in.
+- Logging in takes a Nussknacker API token: ask the person for one (their own under Administration > Access
+  control for a local user; a service account's from an administrator on an instance with OIDC sign-in) and
+  pass it with `nu-cli login --url <designer> --token-stdin < file`; never print or store it yourself. The
+  fallback `nu-cli login --browser` needs a human at a browser: print the command and ask for it, do not try
+  to automate a sign-in.
 - Start without `--allow-write`, `--allow-deploy` and `--allow-delete`. Draft edits are local and reversible;
   saving, deploying and deleting are not. Ask before requesting any of them, for each server separately, and
   say which instance it points at.
