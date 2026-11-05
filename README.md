@@ -263,10 +263,10 @@ never by its value. `--json` prints the same as data; `--config` lists that one 
 #### Getting a token
 
 The credential to prefer is a **Nussknacker API token**: a `nuk_...` string shown once when issued, scoped by
-RBAC roles, with an expiry, and revocable in the Designer under Administration > Access control. Where it comes
+RBAC roles, with an expiry, and revocable in the Designer (My API tokens in the user menu). Where it comes
 from depends on how you sign in to that Designer:
 
-- a **local user** (an instance with its own user list) issues their own under Access control > API tokens;
+- a **local user** (an instance with its own user list) issues their own under My API tokens in the user menu;
 - a user signing in through **OIDC** cannot have personal tokens (their permissions come with each sign-in), so
   ask an administrator for a token of a **service account** with the roles you need - that is the way for CI jobs
   and for using the CLI by hand alike;
@@ -751,7 +751,7 @@ drop one of them. Reads never wait.
 | access           | tools                                                                                                                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | read             | `list_scenarios` `get_scenario` `get_scenario_statuses` `get_scenario_diagnostics` `wait_for_scenario_status` `get_live_data` `get_validation_results` `get_components` `get_component_definition` `list_configured_services` `get_instance_info` `list_skills` `get_skill` `list_topics` `get_topic` `preview_topic_messages` |
-| draft (default)  | `change_scenario_values` `change_scenario_labels` `add_node` `add_node_between` `replace_node` `delete_node` `add_edge` `delete_edge` `apply_scenario_graph` `run_auto_layout` `discard_draft`                                                                                                                                 |
+| draft (default)  | `change_scenario_values` `change_scenario_labels` `add_node` `add_node_between` `replace_node` `delete_node` `remove_nodes_and_reconnect` `add_edge` `delete_edge` `apply_scenario_graph` `run_auto_layout` `discard_draft`                                                                                                    |
 | `--allow-write`  | `create_scenario` `save_scenario` `archive_scenarios` `unarchive_scenarios` `create_topic` `update_topic`                                                                                                                                                                                                                      |
 | `--allow-deploy` | `deploy_scenario` `redeploy_scenario` `cancel_scenarios` `send_message`                                                                                                                                                                                                                                                        |
 | `--allow-delete` | `delete_scenarios` `delete_topic` - each call confirmed by the person, see above                                                                                                                                                                                                                                               |
