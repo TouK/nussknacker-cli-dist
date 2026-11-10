@@ -531,6 +531,11 @@ watches usually has counts alone. The command waits a few seconds for the record
 | `--samples <n>`         | records kept per edge (default 3)                                  |
 | `--wait <seconds>`      | how long to wait for the records (default 5; 0 answers at once)    |
 | `-w, --watch [seconds]` | read again every few seconds (default 2) until interrupted         |
+| `--value <id>`          | print the whole value behind a `nuLargeValue` placeholder          |
+
+A long string in the records, like an image as a base64 data URL, comes as a
+`{"nuLargeValue": {"id", "length", "mediaType", "preview", "href"}}` placeholder.
+`nu-cli live orders --value <id> > frame.txt` saves the value itself.
 
 The scenario has to be running, its engine has to collect live data, and the user needs the right to view it;
 otherwise the command says which of these is missing.
@@ -555,8 +560,13 @@ processing mode and engine can use it, so create it with theirs.
 
 ### Changing a scenario's structure
 
-`scenario set` changes values inside a scenario; these change what it is made of. Every one edits the local
-draft, the same one `set` writes, and nothing reaches the server until `scenario save`.
+`scenario set` changes values inside a scenario; these change what it is made of. Every one edits the
+draft, the same one `set` writes, and no version is written until `scenario save`.
+
+Drafts are kept in files on this machine. A profile with `remoteDrafts: true` keeps them on the Designer
+instead, private to you and to nu-cli, so they follow you to another machine: the Designer's editor in a browser
+keeps drafts of its own, and a save is the only thing that carries an edit from one to the other. With
+`--impersonate` drafts stay in files: the Designer keeps none for a session acting as another user.
 
 ```bash
 nu-cli scenario add-node orders builtin-filter --after "read orders" --node-name "big orders only"
@@ -649,7 +659,7 @@ These commands run the same tool definitions as the agent tools of the same name
 `nu-cli mcp` serves the Designer to an AI agent as MCP tools over stdio. They are the Designer's own AI tools
 under the same names (`list_scenarios`, `get_scenario`, `change_scenario_values`, `get_validation_results`,
 ...), with one difference that follows from where they run: nothing is "currently opened" in a terminal, so
-every scenario tool takes `scenarioName`. Edits land in the same local draft `nu-cli scenario set` writes, so
+every scenario tool takes `scenarioName`. Edits land in the same draft `nu-cli scenario set` writes, so
 `nu-cli scenario diff` shows a person what the agent changed before anything is saved.
 
 `get_instance_info` says which instance the agent talks to, as whom, and whether it is Nu Cloud or self-managed: on
@@ -748,13 +758,13 @@ drop one of them. Reads never wait.
 
 #### What the agent gets
 
-| access           | tools                                                                                                                                                                                                                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| read             | `list_scenarios` `get_scenario` `get_scenario_statuses` `get_scenario_diagnostics` `wait_for_scenario_status` `get_live_data` `get_validation_results` `get_components` `get_component_definition` `list_configured_services` `get_instance_info` `list_skills` `get_skill` `list_topics` `get_topic` `preview_topic_messages` |
-| draft (default)  | `change_scenario_values` `change_scenario_labels` `add_node` `add_node_between` `replace_node` `delete_node` `remove_nodes_and_reconnect` `add_edge` `delete_edge` `apply_scenario_graph` `run_auto_layout` `discard_draft`                                                                                                    |
-| `--allow-write`  | `create_scenario` `save_scenario` `archive_scenarios` `unarchive_scenarios` `create_topic` `update_topic`                                                                                                                                                                                                                      |
-| `--allow-deploy` | `deploy_scenario` `redeploy_scenario` `cancel_scenarios` `send_message`                                                                                                                                                                                                                                                        |
-| `--allow-delete` | `delete_scenarios` `delete_topic` - each call confirmed by the person, see above                                                                                                                                                                                                                                               |
+| access           | tools                                                                                                                                                                                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| read             | `list_scenarios` `get_scenario` `get_scenario_statuses` `get_scenario_diagnostics` `wait_for_scenario_status` `get_live_data` `get_live_data_value` `get_validation_results` `get_components` `get_component_definition` `list_configured_services` `get_instance_info` `list_skills` `get_skill` `list_topics` `get_topic` `preview_topic_messages` |
+| draft (default)  | `change_scenario_values` `change_scenario_labels` `add_node` `add_node_between` `replace_node` `delete_node` `remove_nodes_and_reconnect` `add_edge` `delete_edge` `apply_scenario_graph` `run_auto_layout` `discard_draft`                                                                                                                          |
+| `--allow-write`  | `create_scenario` `save_scenario` `archive_scenarios` `unarchive_scenarios` `create_topic` `update_topic`                                                                                                                                                                                                                                            |
+| `--allow-deploy` | `deploy_scenario` `redeploy_scenario` `cancel_scenarios` `send_message`                                                                                                                                                                                                                                                                              |
+| `--allow-delete` | `delete_scenarios` `delete_topic` - each call confirmed by the person, see above                                                                                                                                                                                                                                                                     |
 
 #### If you are an agent setting this up
 
@@ -785,7 +795,7 @@ path in them, and `nu-cli profile list` for the profiles to fill in. Before acti
   pass it with `nu-cli login --url <designer> --token-stdin < file`; never print or store it yourself. The
   fallback `nu-cli login --browser` needs a human at a browser: print the command and ask for it, do not try
   to automate a sign-in.
-- Start without `--allow-write`, `--allow-deploy` and `--allow-delete`. Draft edits are local and reversible;
+- Start without `--allow-write`, `--allow-deploy` and `--allow-delete`. Draft edits are private and reversible;
   saving, deploying and deleting are not. Ask before requesting any of them, for each server separately, and
   say which instance it points at.
 - Tell the person to restart or reload the client: it reads its servers when it starts.
@@ -1242,6 +1252,7 @@ nu-cli consume --port 9000 --no-tunnel
 | `~/.config/nussknacker-cli/designer.yaml`   | your Designer profiles and credentials  |
 | `~/.config/nussknacker-cli/data.yaml`       | topic endpoints, written by `init-data` |
 | `~/.local/state/nussknacker/mcp.log`        | a line per MCP tool call                |
+| `~/.local/state/nussknacker/drafts/`        | drafts, without `remoteDrafts`          |
 
 `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` are honoured where set.
 
