@@ -663,8 +663,8 @@ every scenario tool takes `scenarioName`. Edits land in the same draft `nu-cli s
 `nu-cli scenario diff` shows a person what the agent changed before anything is saved.
 
 `get_instance_info` says which instance the agent talks to, as whom, and whether it is Nu Cloud or self-managed: on
-Nu Cloud, users and the instance are administered in the tenant manager (the user menu's "Admin"), on a self-managed
-one by the installation's own admins, so the agent can point the user to the right place. `nu-cli whoami` prints the
+Nu Cloud, users and the instance are administered in the tenant manager (the user menu's "Cloud Panel"), on a
+self-managed one in the Designer under Administration → Users and Administration → Roles, so the agent can point the user to the right place. `nu-cli whoami` prints the
 same.
 
 `list_skills` and `get_skill` hand over the Designer's own playbooks — the markdown it publishes beside the app —
